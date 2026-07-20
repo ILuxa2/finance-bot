@@ -20,3 +20,4 @@ credentials~/
 finance-botcredentials/
 .pytest_cache/
 0/
+.git-old-backup/
