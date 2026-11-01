@@ -19,15 +19,33 @@ Object Storage holds the authoritative application state. The processor projects
 
 `CloudReminders` handles scheduled reminders. Secrets are supplied through Lockbox environment mappings, not committed files.
 
-## Source layout
+## Структура проекта
 
-| Directory | Purpose |
+`src` — исходники; `main/java/financeos` — рабочий Java-код; `test/java/financeos` — проверки.
+
+| Папка | Назначение |
 | --- | --- |
-| `src/main/java/financeos/core` | Money calculations, plans, debts, goals, schedules, undo |
-| `src/main/java/financeos/vk` | Commands, menus, dialog state, VK clients, image rendering |
-| `src/main/java/financeos/data` | Legacy sheet schema, adapters, projection and synchronization |
-| `src/main/java/financeos/cloud` | Cloud handlers, IAM metadata token, conditional storage writes |
-| `src/test/java/financeos` | Executable test classes with synthetic data |
+| `src/main/java/financeos/cloud` | Запуск в Яндексе: приём VK, обработка событий, напоминания, Object Storage и синхронизация таблиц |
+| `src/main/java/financeos/core` | Финансовые расчёты: баланс, планы, лимиты, долги, цели, прогнозы, регулярные операции и отмена |
+| `src/main/java/financeos/data` | Чтение и запись Google Sheets, схема колонок, преобразование старых данных и резервные копии |
+| `src/main/java/financeos/vk` | Команды, кнопки, диалог, тексты ответов, отправка сообщений и диаграмм |
+| `src/test/java/financeos/cloud` | Проверки облачных событий и сохранения |
+| `src/test/java/financeos/core` | Проверки финансовых расчётов и расписаний |
+| `src/test/java/financeos/data` | Проверки таблиц и совместимости данных |
+| `src/test/java/financeos/vk` | Проверки меню, диалога, отмены и доставки VK |
+
+| Файл в корне | Назначение |
+| --- | --- |
+| `README.md` | Описание проекта, структура и запуск |
+| `pom.xml` | Версия проекта, Java 21 и зависимости Maven |
+| `check.ps1` | Сборка и запуск автоматических проверок |
+| `SHEET_SCHEMA.md` | Названия листов и колонок Google Sheets |
+| `.env.example` | Пример настроек без настоящих секретов |
+| `.gitignore` | Исключения Git: ключи, журналы, локальные данные и сборка |
+
+После сборки появляется `target/`; Maven хранит библиотеки в своём кэше. В рабочей локальной копии также могут быть `.local-state/` и `.local-output/` с состоянием и резервными копиями — они не публикуются.
+
+Ключевые файлы: `MenuCatalog.java` — кнопки и список команд; `LocalBotEngine.java` — диалог (используется и в облаке); `GoogleSheetsLedgerSync.java` — запись таблиц. `Legacy` в имени означает совместимость со старой таблицей, а не неиспользуемый код.
 
 ## Build and checks
 
