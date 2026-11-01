@@ -1,0 +1,10 @@
+target/
+.m2/
+.local*/
+.env
+.env.*
+!.env.example
+*credentials*.json
+*token*.txt
+*.log
+*.zip
