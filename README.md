@@ -24,6 +24,6 @@ Deployment configuration tests: `python -m unittest discover -s scripts -p 'test
 
 ## Deployment
 
-[Setup and operation](SETUP_GITHUB_DEPLOY.md). Java checks run on pull requests and main/codex branches. Deployment is manual from main only, dry-run by default, with an exact version confirmation. It uses GitHub OIDC credentials; no permanent cloud key is committed. Production access must be connected once before the workflow is usable.
+[Setup and operation](SETUP_GITHUB_DEPLOY.md). Java checks run on pull requests and main/codex branches. Deployment is manual from main only, dry-run by default, with an exact version confirmation. It uses GitHub OIDC credentials; no permanent cloud key is committed. Production OIDC access is connected and restricted to main. A successful [dry-run](https://github.com/ILuxa2/finance-bot/actions/runs/43906953115) ran 62 Java test classes, verified authentication and read both function configurations without changing production. Actual version creation via Actions remains to be verified on the next release.
 
 Local state, keys, tokens, personal backups, logs and build outputs must never be committed. Button layouts and report formatting require agreement before redesign; adding charts preserves existing report text and controls.
