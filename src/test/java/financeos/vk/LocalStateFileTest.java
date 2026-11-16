@@ -45,7 +45,7 @@ public final class LocalStateFileTest {
             }
             var restored = new LocalBotEngine(123, data, clock);
             restored.restoreState(file.load().orElseThrow());
-            if (!send(restored, "4", "/report").text().contains("Свободные деньги: 75000.00 ₽")) {
+            if (!send(restored, "4", "/report").text().contains("Свободные деньги · 75000.00 ₽")) {
                 throw new AssertionError("Local operation was lost after restart");
             }
             file.save(restored.exportState());
@@ -67,7 +67,7 @@ public final class LocalStateFileTest {
                 throw new AssertionError("Second undo was lost after restart");
             }
             if (!send(restored, "report-after-undo", "/report").text()
-                    .contains("Свободные деньги: 75000.00 ₽")) {
+                    .contains("Свободные деньги · 75000.00 ₽")) {
                 throw new AssertionError("Undo did not restore the pre-expense balance");
             }
             file.save(restored.exportState());
@@ -85,7 +85,7 @@ public final class LocalStateFileTest {
             var resumed = new LocalBotEngine(123, data, clock);
             resumed.restoreState(conversationFile.load().orElseThrow());
             if (!send(resumed, "wait-3", "50, после перезапуска").text()
-                    .contains("Расход 50.00 ₽")) {
+                    .contains("🔴 −50.00 ₽")) {
                 throw new AssertionError("Conversation step was lost after restart");
             }
             var debtFile = new LocalStateFile(directory.resolve("debt.json"), 123, data);
@@ -98,14 +98,14 @@ public final class LocalStateFileTest {
             var afterDebtRestart = new LocalBotEngine(123, data, clock);
             afterDebtRestart.restoreState(debtFile.load().orElseThrow());
             var debtForecast = send(afterDebtRestart, "debt-5", "/forecast").text();
-            if (!debtForecast.contains("2026-11 600.00 ₽")
-                    || !debtForecast.contains("2026-12 500.00 ₽")
+            if (!debtForecast.contains("2026-11 · 600.00 ₽")
+                    || !debtForecast.contains("2026-12 · 500.00 ₽")
                     || debtForecast.contains("2027-01")) {
                 throw new AssertionError("Corrected debt schedule was lost after restart");
             }
             send(afterDebtRestart, "debt-6", "/undo");
             if (!send(afterDebtRestart, "debt-7", "/debt_list").text()
-                    .contains("осталось 1800.00 ₽")) {
+                    .contains("осталось · 1800.00 ₽")) {
                 throw new AssertionError("Debt correction cannot be undone after restart");
             }
             var changedBase = new LegacyUserData(Money.of("101000"), data.snapshotTime(),

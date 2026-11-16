@@ -1,0 +1,32 @@
+name: Java checks
+on:
+  pull_request:
+  push:
+    branches: [main, 'codex/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and run all registered synthetic tests
+        run: python scripts/ci.py
+      - name: Test deployment guards without cloud access
+        run: python -m unittest discover -s scripts -p 'test_*.py' -v
+      - uses: actions/upload-artifact@v4
+        with:
+          name: financeos-${{ github.sha }}
+          path: target/ci/*
+          retention-days: 7

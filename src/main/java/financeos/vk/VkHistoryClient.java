@@ -43,6 +43,9 @@ public final class VkHistoryClient {
 
     public List<VkEvent> since(long peerId, long ownerId, long checkpoint)
             throws IOException, InterruptedException {
+        return since(peerId,java.util.Set.of(ownerId),checkpoint);
+    }
+    public List<VkEvent> since(long peerId,java.util.Set<Long> users,long checkpoint) throws IOException,InterruptedException {
         if (checkpoint < 0) throw new IllegalArgumentException("Invalid VK history checkpoint");
         List<VkEvent> result = new ArrayList<>();
         int offset = 0;
@@ -52,12 +55,15 @@ public final class VkHistoryClient {
             boolean reachedCheckpoint = false;
             for (var message : items) {
                 long sequence = message.path("conversation_message_id").asLong();
-                if (sequence <= 0) throw new IOException("VK history lacks conversation message ID");
+                if (sequence <= 0) {
+                    if (message.path("is_deleted").asBoolean() || message.path("deleted").asInt() == 1) continue;
+                    throw new IOException("VK history lacks conversation message ID");
+                }
                 if (sequence <= checkpoint) {
                     reachedCheckpoint = true;
                     continue;
                 }
-                if (message.path("from_id").asLong() != ownerId
+                if (!users.contains(message.path("from_id").asLong())
                         || message.path("peer_id").asLong() != peerId
                         || message.path("out").asInt() != 0) continue;
                 ObjectNode event = mapper.createObjectNode();

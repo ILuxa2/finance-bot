@@ -16,7 +16,55 @@ public record BotLocalState(List<LegacyUserData.TimedEntry> entries, List<Budget
                             Map<YearMonth, BigDecimal> limits, long nextEntryId,
                             List<String> seenEvents, RecurringBook.State recurring,
                             String pending, String pendingCategory, Navigation.State navigation,
-                            List<BotUndoState> undoHistory) {
+                            List<BotUndoState> undoHistory, Map<String, financeos.core.OperationLink> operationLinks, HistoryCursor history, java.util.Set<String> deletedIds, String chartTheme, ChatCleanupSettings chatCleanup, List<financeos.core.PlanEdit> planEdits, financeos.core.CategorySections categorySections) {
+    public BotLocalState(List<LegacyUserData.TimedEntry> entries,List<BudgetPlan> plans,List<Debt> debts,List<Goal> goals,
+            Map<YearMonth,BigDecimal> limits,long nextEntryId,List<String> seenEvents,RecurringBook.State recurring,String pending,String pendingCategory,
+            Navigation.State navigation,List<BotUndoState> undoHistory,Map<String,financeos.core.OperationLink> operationLinks,HistoryCursor history,
+            java.util.Set<String> deletedIds,String chartTheme,ChatCleanupSettings chatCleanup,List<financeos.core.PlanEdit> planEdits){
+        this(entries,plans,debts,goals,limits,nextEntryId,seenEvents,recurring,pending,pendingCategory,navigation,undoHistory,operationLinks,history,deletedIds,chartTheme,chatCleanup,planEdits,financeos.core.CategorySections.empty());
+    }
+    public BotLocalState(List<LegacyUserData.TimedEntry> entries,List<BudgetPlan> plans,List<Debt> debts,List<Goal> goals,
+                         Map<YearMonth,BigDecimal> limits,long nextEntryId,List<String> seenEvents,RecurringBook.State recurring,
+                         String pending,String pendingCategory,Navigation.State navigation,List<BotUndoState> undoHistory,
+                         Map<String,financeos.core.OperationLink> operationLinks,HistoryCursor history,java.util.Set<String> deletedIds,
+                         String chartTheme,ChatCleanupSettings chatCleanup) {
+        this(entries,plans,debts,goals,limits,nextEntryId,seenEvents,recurring,pending,pendingCategory,navigation,undoHistory,operationLinks,history,deletedIds,chartTheme,chatCleanup,List.of());
+    }
+    public BotLocalState(List<LegacyUserData.TimedEntry> entries, List<BudgetPlan> plans,
+                         List<Debt> debts, List<Goal> goals, Map<YearMonth, BigDecimal> limits,
+                         long nextEntryId, List<String> seenEvents, RecurringBook.State recurring,
+                         String pending, String pendingCategory, Navigation.State navigation,
+                         List<BotUndoState> undoHistory, Map<String, financeos.core.OperationLink> operationLinks,
+                         HistoryCursor history, java.util.Set<String> deletedIds, String chartTheme) {
+        this(entries, plans, debts, goals, limits, nextEntryId, seenEvents, recurring, pending, pendingCategory,
+                navigation, undoHistory, operationLinks, history, deletedIds, chartTheme, ChatCleanupSettings.off());
+    }
+    public BotLocalState(List<LegacyUserData.TimedEntry> entries, List<BudgetPlan> plans,
+                         List<Debt> debts, List<Goal> goals, Map<YearMonth, BigDecimal> limits,
+                         long nextEntryId, List<String> seenEvents, RecurringBook.State recurring,
+                         String pending, String pendingCategory, Navigation.State navigation,
+                         List<BotUndoState> undoHistory, Map<String, financeos.core.OperationLink> operationLinks,
+                         HistoryCursor history, java.util.Set<String> deletedIds) {
+        this(entries, plans, debts, goals, limits, nextEntryId, seenEvents, recurring, pending, pendingCategory,
+                navigation, undoHistory, operationLinks, history, deletedIds, "dark");
+    }
+    public BotLocalState(List<LegacyUserData.TimedEntry> entries, List<BudgetPlan> plans,
+                         List<Debt> debts, List<Goal> goals, Map<YearMonth, BigDecimal> limits,
+                         long nextEntryId, List<String> seenEvents, RecurringBook.State recurring,
+                         String pending, String pendingCategory, Navigation.State navigation,
+                         List<BotUndoState> undoHistory, Map<String, financeos.core.OperationLink> operationLinks, HistoryCursor history) {
+        this(entries, plans, debts, goals, limits, nextEntryId, seenEvents, recurring, pending, pendingCategory,
+                navigation, undoHistory, operationLinks, history, java.util.Set.of());
+    }
+    public BotLocalState(List<LegacyUserData.TimedEntry> entries, List<BudgetPlan> plans,
+                         List<Debt> debts, List<Goal> goals, Map<YearMonth, BigDecimal> limits,
+                         long nextEntryId, List<String> seenEvents, RecurringBook.State recurring,
+                         String pending, String pendingCategory, Navigation.State navigation,
+                         List<BotUndoState> undoHistory) {
+        this(entries, plans, debts, goals, limits, nextEntryId, seenEvents, recurring,
+                pending, pendingCategory, navigation, undoHistory, Map.of(), HistoryCursor.empty());
+    }
+
     public BotLocalState(List<LegacyUserData.TimedEntry> entries, List<BudgetPlan> plans,
                          List<Debt> debts, List<Goal> goals,
                          Map<YearMonth, BigDecimal> limits, long nextEntryId,
@@ -43,6 +91,13 @@ public record BotLocalState(List<LegacyUserData.TimedEntry> entries, List<Budget
     }
 
     public BotLocalState {
+        java.util.Objects.requireNonNull(categorySections);
+        planEdits = List.copyOf(planEdits);
+        java.util.Objects.requireNonNull(chatCleanup);
+        if (!java.util.Set.of("dark", "light").contains(chartTheme)) throw new IllegalArgumentException("Invalid chart theme");
+        deletedIds = java.util.Set.copyOf(deletedIds);
+        operationLinks = Map.copyOf(operationLinks);
+        java.util.Objects.requireNonNull(history);
         entries = List.copyOf(entries);
         plans = List.copyOf(plans);
         debts = List.copyOf(debts);

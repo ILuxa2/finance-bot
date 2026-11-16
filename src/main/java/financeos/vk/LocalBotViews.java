@@ -23,16 +23,16 @@ public final class LocalBotViews {
 
     public static String report(LegacyUserData data, OffsetDateTime now) {
         var report = new LegacyReportService().calculate(data, now);
-        return "📊 Отчёт на " + now.toLocalDate() + "\n"
-                + "Фактический баланс: " + money(report.actualBalance()) + " ₽\n"
-                + "Планы за месяц: " + money(report.plannedExpenses()) + " ₽\n"
-                + "Осталось оплатить по плану: " + money(report.remainingPlans()) + " ₽\n"
-                + "Свободные деньги: " + money(report.freeMoney())
-                + " ₽ (баланс минус остаток плана)\n"
-                + "Незапланированные расходы за месяц: "
-                + money(report.unplannedThisMonth()) + " ₽ (уже учтены в балансе)\n"
-                + "Сегодня: доход " + money(report.incomeToday())
-                + " ₽, расход " + money(report.expenseToday()) + " ₽";
+        return "📊 Отчёт на " + now.toLocalDate() + "\n\n"
+                + "Фактический баланс · " + money(report.actualBalance()) + " ₽\n"
+                + "Свободные деньги · " + money(report.freeMoney()) + " ₽\n"
+                + "Баланс минус остаток плана\n\n"
+                + "Осталось оплатить по плану · " + money(report.remainingPlans()) + " ₽\n"
+                + "Планы за месяц · " + money(report.plannedExpenses()) + " ₽\n"
+                + "Незапланированные расходы за месяц · " + money(report.unplannedThisMonth())
+                + " ₽\nУже учтены в балансе\n\nСегодня\n"
+                + "Доходы · " + UiText.flow(EntryKind.INCOME, report.incomeToday())
+                + "\nРасходы · " + UiText.flow(EntryKind.EXPENSE, report.expenseToday());
     }
 
     public static String periodReport(LegacyUserData data, OffsetDateTime now,
@@ -51,18 +51,18 @@ public final class LocalBotViews {
         }
         var result = new StringBuilder("📊 Отчёт за ").append(from);
         if (!from.equals(through)) result.append(" — ").append(through);
-        result.append("\nДоход: ").append(money(totals.income())).append(" ₽")
-                .append("\nРасход: ").append(money(totals.expense())).append(" ₽")
-                .append("\nНезапланированные расходы: ").append(money(unplanned))
+        result.append("\nДоходы · ").append(UiText.flow(EntryKind.INCOME, totals.income()))
+                .append("\nРасходы · ").append(UiText.flow(EntryKind.EXPENSE, totals.expense()))
+                .append("\nНезапланированные расходы · ").append(money(unplanned))
                 .append(" ₽ (уже учтены в балансе)");
         LocalDate snapshotDate = data.snapshotTime().atZoneSameInstant(MOSCOW).toLocalDate();
         if (!through.isBefore(snapshotDate)) {
             OffsetDateTime at = through.equals(now.toLocalDate()) ? now
                     : through.atTime(java.time.LocalTime.MAX).atZone(MOSCOW).toOffsetDateTime();
             var ending = new LegacyReportService().calculate(data, at);
-            result.append("\nБаланс на конец периода: ").append(money(ending.actualBalance()))
-                    .append(" ₽\nОсталось оплатить по плану: ").append(money(ending.remainingPlans()))
-                    .append(" ₽\nСвободные деньги на конец периода: ")
+            result.append("\nБаланс на конец периода · ").append(money(ending.actualBalance()))
+                    .append(" ₽\nОсталось оплатить по плану · ").append(money(ending.remainingPlans()))
+                    .append(" ₽\nСвободные деньги на конец периода · ")
                     .append(money(ending.freeMoney())).append(" ₽");
         } else {
             result.append("\nБаланс до начального снимка данных не рассчитывается.");
@@ -71,19 +71,11 @@ public final class LocalBotViews {
     }
 
     public static String planFact(LegacyUserData data, OffsetDateTime now) {
-        var month = YearMonth.from(now);
-        var lines = new BudgetService().breakdown(month, data.plans(),
-                data.transactions().stream().filter(t -> !t.timestamp().isAfter(now))
-                        .map(LegacyUserData.TimedEntry::entry).toList());
-        if (lines.isEmpty()) return "На " + month + " планов пока нет.";
-        var result = new StringBuilder("📋 План / факт за " + month + "\n");
-        for (var line : lines) {
-            result.append(line.category()).append(": план ").append(money(line.planned()))
-                    .append(" ₽, потрачено ").append(money(line.spent()))
-                    .append(" ₽, остаток ").append(money(line.remaining())).append(" ₽\n");
-            if (result.length() > 3000) { result.append("…"); break; }
-        }
-        return result.toString().strip();
+        return planFact(data, now, YearMonth.from(now));
+    }
+
+    public static String planFact(LegacyUserData data, OffsetDateTime now, YearMonth month) {
+        return PlanFactView.categories(data,now,month,"По категориям");
     }
 
     public static String debtList(LegacyUserData data) {
@@ -91,9 +83,9 @@ public final class LocalBotViews {
         if (debts.isEmpty()) return "Долгов пока нет.";
         var result = new StringBuilder("💳 Долги\n");
         for (var debt : debts) {
-            result.append(debt.name()).append(": осталось ").append(money(debt.remaining()))
-                    .append(" ₽, платёж ").append(money(debt.monthlyPayment()))
-                    .append(" ₽, день ").append(debt.paymentDay())
+            result.append(debt.name()).append(" · осталось · ").append(money(debt.remaining()))
+                    .append(" ₽ · платёж · ").append(money(debt.monthlyPayment()))
+                    .append(" ₽ · день · ").append(debt.paymentDay())
                     .append(debt.active() ? " (активен)" : " (закрыт)").append("\n");
         }
         return result.toString().strip();
@@ -104,9 +96,9 @@ public final class LocalBotViews {
         if (goals.isEmpty()) return "Целей пока нет.";
         var result = new StringBuilder("🎯 Цели\n");
         for (var goal : goals) {
-            result.append(goal.name()).append(": накоплено ").append(money(goal.current()))
-                    .append(" ₽ из ").append(money(goal.target()))
-                    .append(" ₽, осталось ").append(money(goal.remaining()))
+            result.append(goal.name()).append(" · накоплено · ").append(money(goal.current()))
+                    .append(" ₽ · цель · ").append(money(goal.target()))
+                    .append(" ₽ · осталось · ").append(money(goal.remaining()))
                     .append(goal.active() ? " ₽" : " ₽ (закрыта)").append("\n");
         }
         return result.toString().strip();
@@ -123,8 +115,8 @@ public final class LocalBotViews {
                 .map(LegacyUserData.TimedEntry::entry).toList();
         BigDecimal effective = override == null ? base : override;
         BigDecimal remaining = new DailyLimitService().remaining(date, effective, null, entries);
-        return "⏱ Дневной лимит: " + money(effective) + " ₽."
-                + " Осталось сегодня: " + money(remaining) + " ₽.";
+        return "⏱ Дневной лимит · " + money(effective) + " ₽."
+                + " Осталось сегодня · " + money(remaining) + " ₽.";
     }
 
     public static String morningLimit(LegacyUserData data, OffsetDateTime now) {
@@ -132,7 +124,7 @@ public final class LocalBotViews {
         var base = data.extras().monthlyLimits().get(YearMonth.from(date));
         var override = data.extras().dailyOverrides().get(date);
         if (base == null && override == null) {
-            return "🌅 На сегодня лимит не установлен. Откройте /set_limit.";
+            return "🌅 На сегодня лимит не установлен. Нажмите «Установить лимит».";
         }
         BigDecimal effective = override == null ? base : override;
         var entries = data.transactions().stream()
@@ -161,6 +153,22 @@ public final class LocalBotViews {
         boolean any = false;
         for (var debt : data.extras().debts()) {
             if (!debt.active() || debt.remaining().signum() == 0) continue;
+            String reserveCategory = financeos.core.DebtBudgetService.category(debt.name());
+            var reserves = data.plans().stream().filter(p -> p.category().equals(reserveCategory)
+                    && !p.month().isBefore(YearMonth.from(today)) && p.month().isBefore(YearMonth.from(today).plusMonths(12)))
+                    .sorted(java.util.Comparator.comparing(financeos.core.BudgetPlan::month)).toList();
+            if (!reserves.isEmpty()) {
+                var line = new StringBuilder(debt.name()).append(": ");
+                boolean hasPayment = false;
+                var actual = data.transactions().stream().filter(t -> !t.timestamp().isAfter(now)).map(LegacyUserData.TimedEntry::entry).toList();
+                for (var reserve : reserves) {
+                    var budget = new BudgetService().breakdown(reserve.month(), data.plans(), actual).stream()
+                            .filter(b -> b.category().equals(reserveCategory)).findFirst().orElseThrow();
+                    if (budget.remaining().signum() > 0) { hasPayment = true; line.append(reserve.month()).append(" · ").append(money(budget.remaining())).append(" ₽; "); }
+                }
+                if (hasPayment) { any = true; result.append(line).append("\n"); }
+                continue;
+            }
             var month = YearMonth.from(today);
             LocalDate next = month.atDay(Math.min(debt.paymentDay(), month.lengthOfMonth()));
             if (next.isBefore(today)) {
@@ -178,7 +186,7 @@ public final class LocalBotViews {
             any = true;
             result.append(debt.name()).append(": ");
             for (var payment : payments.entrySet()) {
-                result.append(payment.getKey()).append(" ").append(money(payment.getValue()))
+                result.append(payment.getKey()).append(" · ").append(money(payment.getValue()))
                         .append(" ₽; ");
             }
             result.append("\n");
@@ -199,6 +207,12 @@ public final class LocalBotViews {
 
     public static String history(LegacyUserData data, OffsetDateTime now,
                                  LocalDate from, LocalDate through, int page) {
+        return history(data, now, from, through, page, java.util.Map.of());
+    }
+
+    public static String history(LegacyUserData data, OffsetDateTime now,
+                                 LocalDate from, LocalDate through, int page,
+                                 java.util.Map<String, financeos.core.OperationLink> links) {
         if (page < 0) throw new IllegalArgumentException("Invalid history page");
         var entries = historyEntries(data, now, from, through);
         if (entries.isEmpty()) return "Операций за выбранное время нет.";
@@ -206,21 +220,23 @@ public final class LocalBotViews {
         if (page >= pages) return "Это последняя страница истории.";
         var result = new StringBuilder("📜 История операций — страница ")
                 .append(page + 1).append(" из ").append(pages);
+        result.append(from!=null&&through!=null?"\nПериод · "+from+" — "+through:"\nЗа всё время");
         int end = Math.min(entries.size(), (page + 1) * 20);
         for (int i = page * 20; i < end; i++) {
             var entry = entries.get(i);
-            result.append("\n").append(entry.date()).append(" | ")
-                    .append(entry.kind() == EntryKind.TRANSFER ? "↔" :
-                            entry.kind() == EntryKind.INCOME ? "+" : "−")
-                    .append(money(entry.amount())).append(" ₽ | ").append(shorten(entry.category(), 60))
-                    .append(" | ").append(shorten(entry.description(), 150));
+            var link = links.get(entry.id());
+            result.append("\n\n").append(entry.date()).append(" · ")
+                    .append(link != null && link.type() == financeos.core.OperationLink.Type.GOAL_FUND ? "🎯 " : "")
+                    .append(UiText.flow(entry.kind(), entry.amount())).append(" · ").append(shorten(entry.category(), 60))
+                    .append("\n").append(shorten(entry.description(), 150));
             if (entry.id().startsWith("local-")) result.append(" [").append(entry.id()).append("]");
         }
-        if (page + 1 < pages) result.append("\nНажмите «Дальше» для следующей страницы.");
+        if (page + 1 < pages) result.append("\nНажмите «Раньше» для более старых операций.");
+        else result.append("\nПоказаны все оставшиеся операции выбранного периода.");
         return result.toString();
     }
 
-    private static java.util.List<LedgerEntry> historyEntries(LegacyUserData data, OffsetDateTime now,
+    public static java.util.List<LedgerEntry> historyEntries(LegacyUserData data, OffsetDateTime now,
                                                                LocalDate from, LocalDate through) {
         var entries = data.transactions().stream()
                 .filter(t -> !t.timestamp().isAfter(now))
@@ -229,6 +245,30 @@ public final class LocalBotViews {
         else entries = entries.stream().sorted(Comparator.comparing(LedgerEntry::date).reversed()
                 .thenComparing(LedgerEntry::id)).toList();
         return entries;
+    }
+
+    /** Compare complete calendar months so a partial current month cannot look artificially better. */
+    public static String compareMonths(LegacyUserData data, OffsetDateTime now) {
+        YearMonth current = YearMonth.from(now).minusMonths(1), previous = current.minusMonths(1);
+        BigDecimal incomeNow = BigDecimal.ZERO, expenseNow = BigDecimal.ZERO, incomeBefore = BigDecimal.ZERO, expenseBefore = BigDecimal.ZERO;
+        for (var timed : data.transactions()) {
+            if (timed.timestamp().isAfter(now)) continue;
+            var e = timed.entry(); var month = YearMonth.from(e.date());
+            if (month.equals(current)) {
+                if (e.kind() == EntryKind.INCOME) incomeNow = incomeNow.add(e.amount());
+                if (e.kind() == EntryKind.EXPENSE) expenseNow = expenseNow.add(e.amount());
+            } else if (month.equals(previous)) {
+                if (e.kind() == EntryKind.INCOME) incomeBefore = incomeBefore.add(e.amount());
+                if (e.kind() == EntryKind.EXPENSE) expenseBefore = expenseBefore.add(e.amount());
+            }
+        }
+        return "📊 Сравнение полных месяцев · " + current + " и " + previous
+                + "\nИзменение относительно " + previous
+                + "\n\nДоходы · " + UiText.delta(incomeNow.subtract(incomeBefore), true)
+                + "\nРасходы · " + UiText.delta(expenseNow.subtract(expenseBefore), false)
+                + "\nРазница доходов и расходов · " + UiText.delta(incomeNow.subtract(expenseNow).subtract(incomeBefore.subtract(expenseBefore)), true)
+                + "\n\nЗнак показывает разницу. Зелёный цвет расходов означает снижение."
+                + "\nСравнение по записанным операциям.";
     }
 
     private static String money(BigDecimal value) { return value.setScale(2).toPlainString(); }

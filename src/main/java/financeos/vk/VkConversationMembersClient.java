@@ -66,6 +66,22 @@ public final class VkConversationMembersClient {
         return members.size() == 2 && members.contains(ownerId) && members.contains(-groupId);
     }
 
+    public Set<Long> authorizedMembers(long peerId,long ownerId,Set<Long> allowed) throws IOException,InterruptedException {
+        if(peerId<2_000_000_000L)return Set.of();
+        String form=field("peer_id",""+peerId)+"&"+field("group_id",""+groupId)+"&"+field("count","200")+"&"+field("access_token",token)+"&"+field("v","5.199");
+        var request=HttpRequest.newBuilder(endpoint).timeout(Duration.ofSeconds(15)).header("Content-Type","application/x-www-form-urlencoded; charset=UTF-8").POST(HttpRequest.BodyPublishers.ofString(form)).build();
+        var response=http.send(request,HttpResponse.BodyHandlers.ofString());
+        if(response.statusCode()!=200)throw new IOException("VK membership unavailable");
+        var root=mapper.readTree(response.body());if(root.has("error"))throw new IOException("VK membership rejected");
+        return authorizedMembers(root.path("response"),ownerId,groupId,allowed);
+    }
+    static Set<Long> authorizedMembers(JsonNode response,long owner,long group,Set<Long> allowed){
+        var items=response.path("items");int count=response.path("count").asInt(-1);
+        if(!items.isArray()||count<2||count!=items.size()||count>allowed.size()+1)return Set.of();
+        var humans=new HashSet<Long>();boolean bot=false;var seen=new HashSet<Long>();
+        for(var item:items){long id=item.path("member_id").asLong();if(!seen.add(id))return Set.of();if(id==-group)bot=true;else if(id>0&&allowed.contains(id))humans.add(id);else return Set.of();}
+        return bot&&humans.contains(owner)?Set.copyOf(humans):Set.of();
+    }
     private static String field(String name, String value) {
         return URLEncoder.encode(name, StandardCharsets.UTF_8) + "="
                 + URLEncoder.encode(value, StandardCharsets.UTF_8);
