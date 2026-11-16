@@ -37,9 +37,9 @@ public final class ChartRenderer {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
                     RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            g.setColor((dark ? new Color(18, 24, 28) : new Color(246, 247, 243)));
+            g.setColor((dark ? new Color(8, 11, 14) : new Color(246, 247, 243)));
             g.fillRect(0, 0, canvasWidth, height);
-            g.setColor((dark ? new Color(28, 36, 40) : Color.WHITE));
+            g.setColor((dark ? new Color(19, 25, 31) : Color.WHITE));
             g.fillRoundRect(20, 20, canvasWidth - 40, height - 40, 22, 22);
             g.setColor((dark ? new Color(235, 241, 239) : new Color(15, 23, 42)));
             g.setFont(new Font("Segoe UI", Font.BOLD, 28));
@@ -55,6 +55,7 @@ public final class ChartRenderer {
             }
             double max = data.series().stream().flatMap(s -> s.values().stream())
                     .mapToDouble(BigDecimal::doubleValue).max().orElse(0);
+            if (percentageTotal != null && percentageTotal.signum() > 0) max = percentageTotal.doubleValue();
             if (max <= 0) max = 1;
             int axisTop = 130;
             int axisBottom = 145 + data.labels().size() * 68;

@@ -59,6 +59,11 @@ public final class OperationEditorTest {
         equal("400", changed.debts().getFirst().remaining());
         try { editor.change(base, List.of(), List.of(), List.of(), Map.of(), expense.entry().id(), OperationEditor.Field.DATE, "2026-11-11", NOW); throw new AssertionError("Future date accepted"); }
         catch (IllegalArgumentException expected) { }
+        var movedDebt = editor.change(base,List.of(payment),debts,List.of(),debtLinks,"local-2",OperationEditor.Field.CATEGORY,"Другой раздел",NOW);
+        if(!movedDebt.debts().equals(debts))throw new AssertionError("Category move changed linked debt");
+        var movedGoal = editor.change(base,List.of(fund),List.of(),goals,goalLinks,"local-3",OperationEditor.Field.CATEGORY,"Другой раздел",NOW);
+        if(!movedGoal.goals().equals(goals))throw new AssertionError("Category move changed linked goal");
+        equal("850", new BalanceService().actualBalance(editor.combined(base,movedGoal.entries(),List.of(),List.of(),goals,Map.of(),goalLinks),NOW));
         equal("1000", base.startingBalance());
         System.out.println("Operation edits, snapshot boundaries, linked debt and goal checks passed.");
     }

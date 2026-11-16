@@ -216,13 +216,13 @@ public final class LocalBotViews {
         if (page < 0) throw new IllegalArgumentException("Invalid history page");
         var entries = historyEntries(data, now, from, through);
         if (entries.isEmpty()) return "Операций за выбранное время нет.";
-        int pages = (entries.size() + 19) / 20;
+        int pages = (entries.size() + 9) / 10;
         if (page >= pages) return "Это последняя страница истории.";
         var result = new StringBuilder("📜 История операций — страница ")
                 .append(page + 1).append(" из ").append(pages);
         result.append(from!=null&&through!=null?"\nПериод · "+from+" — "+through:"\nЗа всё время");
-        int end = Math.min(entries.size(), (page + 1) * 20);
-        for (int i = page * 20; i < end; i++) {
+        int end = Math.min(entries.size(), (page + 1) * 10);
+        for (int i = page * 10; i < end; i++) {
             var entry = entries.get(i);
             var link = links.get(entry.id());
             result.append("\n\n").append(entry.date()).append(" · ")
@@ -231,7 +231,7 @@ public final class LocalBotViews {
                     .append("\n").append(shorten(entry.description(), 150));
             if (entry.id().startsWith("local-")) result.append(" [").append(entry.id()).append("]");
         }
-        if (page + 1 < pages) result.append("\nНажмите «Раньше» для более старых операций.");
+        if (page + 1 < pages) result.append("\nНажмите «Следующие» для более старых операций.");
         else result.append("\nПоказаны все оставшиеся операции выбранного периода.");
         return result.toString();
     }

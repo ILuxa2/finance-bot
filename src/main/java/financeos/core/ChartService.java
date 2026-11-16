@@ -43,7 +43,7 @@ public final class ChartService {
         }
         var sorted = amounts.entrySet().stream()
                 .sorted(Map.Entry.<String, BigDecimal>comparingByValue().reversed())
-                .limit(12).toList();
+                .toList();
         return new ChartData(title, sorted.stream().map(e -> labels.get(e.getKey())).toList(),
                 List.of(new ChartSeries("Сумма, ₽", sorted.stream().map(Map.Entry::getValue).toList())));
     }

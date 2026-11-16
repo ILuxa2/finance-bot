@@ -33,22 +33,15 @@ public final class VkMessagesClient {
                 || reply.text().length() > 9000) {
             throw new IllegalArgumentException("Invalid VK message");
         }
-        var images=reply.images();var attachments=new java.util.ArrayList<String>();
+        var images=ChartAttachments.fit(reply.images());var attachments=new java.util.ArrayList<String>();
         try(var uploads=java.util.concurrent.Executors.newFixedThreadPool(3)){
             var pending=images.stream().map(image->uploads.submit(()->photos.upload(event.peerId(),image))).toList();
             for(var upload:pending)try{attachments.add(upload.get());}
             catch(java.util.concurrent.ExecutionException failure){for(var task:pending)task.cancel(true);var cause=failure.getCause();if(cause instanceof IOException io)throw io;if(cause instanceof InterruptedException interrupted){Thread.currentThread().interrupt();throw interrupted;}throw new IOException("VK chart upload failed",cause);}
         }
-        long first=0;
-        int batches=Math.max(1,(attachments.size()+9)/10);
-        for(int batch=0;batch<batches;batch++){
-            String attachment=String.join(",",attachments.subList(Math.min(batch*10,attachments.size()),Math.min(batch*10+10,attachments.size())));
-            var partEvent=batch==0?event:new VkEvent(event.type(),event.groupId(),event.userId(),event.peerId(),event.eventId()+":charts:"+batch,"",event.conversationMessageId());
-            long sent=sendPart(partEvent,batch==0?reply:new BotReply("Диаграммы расходов · продолжение",reply.screen(),null,java.util.List.of()),attachment);
-            if(batch==0)first=sent;
-        }
-        return first;
+        return sendPart(event,reply,String.join(",",attachments));
     }
+
     private long sendPart(VkEvent event,BotReply reply,String attachment)throws IOException,InterruptedException {
         String body = form(event, reply.text(), attachment);
         if(reply.buttons()!=null && reply.buttons().isEmpty())return sendForm(body);

@@ -62,7 +62,7 @@ public final class CloudChatCleanupTest {
                     if(M.readTree(state.get()).path("lastConversationMessageId").asLong()!=100)throw new AssertionError("Delete before checkpoint");
                     var result=new ArrayList<Map<String,Object>>();for(var part:f.get("cmids").split(",")){long cmid=Long.parseLong(part);if(cmid>100)throw new AssertionError("Deleted an unprocessed/new message");removed.add(cmid);result.add(Map.of("peer_id",PEER,"conversation_message_id",cmid,"response",1));}deletes.incrementAndGet();response=result;
                 }
-                case "/method/messages.send" -> {sends.incrementAndGet();lastSent.set(f.get("message"));if(lastSent.get().equals(MenuCatalog.commandHelp())&&f.containsKey("keyboard"))throw new AssertionError("Empty help contains keyboard");response=1234;}
+                case "/method/messages.send" -> {sends.incrementAndGet();lastSent.set(f.get("message"));if(lastSent.get().equals(MenuCatalog.welcomeHelp())&&f.containsKey("keyboard"))throw new AssertionError("Empty help contains keyboard");response=1234;}
                 default -> throw new AssertionError("Unknown cleanup method");
             }
             byte[] bytes=M.writeValueAsBytes(Map.of("response",response));exchange.sendResponseHeaders(200,bytes.length);try(var out=exchange.getResponseBody()){out.write(bytes);}
@@ -75,10 +75,10 @@ public final class CloudChatCleanupTest {
             var delivered=M.readValue(state.get(),CloudVkProcessor.Envelope.class).replies().get(CloudVkIngress.eventId(confirmation));
             if(!delivered.delivered()||!finances(local(state.get())).equals(finances(original)))throw new AssertionError("Cleanup changed financial state or lost receipt");
             processor.retryPendingReplies();if(deletes.get()!=1||sends.get()!=1)throw new AssertionError("Delivered cleanup executed again");
-            if(lastSent.get().equals(MenuCatalog.commandHelp()))throw new AssertionError("Help despite remaining new messages");
+            if(lastSent.get().equals(MenuCatalog.welcomeHelp()))throw new AssertionError("Help despite remaining new messages");
             emptyChat.set(true);removed.clear();deletes.set(0);sends.set(0);state.set(envelope(original,replies));
             processor.retryPendingReplies();
-            if(sends.get()!=1 || !lastSent.get().equals(MenuCatalog.commandHelp()) || lastSent.get().contains("Удалено в этой попытке"))throw new AssertionError("Empty chat did not receive help only");
+            if(sends.get()!=1 || !lastSent.get().equals(MenuCatalog.welcomeHelp()) || lastSent.get().contains("Удалено в этой попытке"))throw new AssertionError("Empty chat did not receive help only");
             processor.retryPendingReplies();if(sends.get()!=1)throw new AssertionError("Empty-chat help repeated");
             emptyChat.set(false);
             var direct=new VkEvent("message_new",99,42,42,"wrong-peer","/chat_clear_confirm",100);
@@ -98,7 +98,7 @@ public final class CloudChatCleanupTest {
             var pending=new LinkedHashMap<String,CloudVkProcessor.SavedReply>();pending.put("pending",new CloudVkProcessor.SavedReply("reply",Screen.MAIN,null,null,new VkEvent("message_new",99,42,PEER,"pending","/report",100),false));
             state.set(envelope(enabled,pending));processor.runAutomaticCleanup();if(deletes.get()!=1||!ChatCleanupSettings.read(local(state.get())).lastDate().isEmpty())throw new AssertionError("Cleanup ignored an undelivered result");
             emptyChat.set(true);removed.clear();int helpBefore=sends.get();state.set(envelope(enabled,new LinkedHashMap<>()));processor.runAutomaticCleanup();
-            if(sends.get()!=helpBefore+1||!lastSent.get().equals(MenuCatalog.commandHelp()))throw new AssertionError("Automatic empty clear did not send help only");
+            if(sends.get()!=helpBefore+1||!lastSent.get().equals(MenuCatalog.welcomeHelp()))throw new AssertionError("Automatic empty clear did not send help only");
             emptyChat.set(false);int expectedDeletes=deletes.get();
             privateChat.set(false);state.set(envelope(enabled,new LinkedHashMap<>()));processor.runAutomaticCleanup();if(deletes.get()!=expectedDeletes)throw new AssertionError("Privacy guard ignored");
             privateChat.set(true);moderates.set(false);int before=sends.get();state.set(envelope(enabled,new LinkedHashMap<>()));processor.runAutomaticCleanup();if(deletes.get()!=expectedDeletes||sends.get()!=before+1)throw new AssertionError("Blocked cleanup was not reported");
