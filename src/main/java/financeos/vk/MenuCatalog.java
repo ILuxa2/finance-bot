@@ -11,9 +11,15 @@ public final class MenuCatalog {
             Map.entry(Screen.CATEGORY_PRUNE,List.of(new MenuButton("✅ Убрать неиспользуемые","/sections_prune_confirm"),new MenuButton("❌ Отмена","/sections"))),
             Map.entry(Screen.MAIN, List.of(
                     new MenuButton("💸 Расход", "/expense"), new MenuButton("💰 Доход", "/income"),
-                    new MenuButton("📊 Отчёт", "/report_menu"), new MenuButton("📜 Все операции", "/operations"),
-                    new MenuButton("📋 Планы", "/plans"), new MenuButton("☰ Ещё", "/settings"),
-                    new MenuButton("✏️ Изменить", "/operation_filters"), new MenuButton("❓ Помощь", "/help"), new MenuButton("🧾 Чек", "/receipt"))),
+                    new MenuButton("🧾 Чек", "/receipt"), new MenuButton("📊 Отчёт", "/report_menu"),
+                    new MenuButton("📜 Все операции", "/operations"), new MenuButton("📋 Планы", "/plans"),
+                    new MenuButton("⏳ Ожидают", "/regular_pending"), new MenuButton("⚙️ Ещё", "/settings"),
+                    new MenuButton("❓ Помощь", "/help"))),
+            Map.entry(Screen.HELP, List.of(new MenuButton("📖 Список команд", "/commands"),
+                    new MenuButton("💬 Обратная связь", "/feedback"))),
+            Map.entry(Screen.PREFERENCES, List.of(
+                    new MenuButton("📂 Разделы и категории", "/sections"), new MenuButton("🚦 Лимиты", "/limits"),
+                    new MenuButton("🎨 Тема диаграмм", "/chart_theme"), new MenuButton("🧹 Очистка чата", "/chat_cleanup"))),
             Map.entry(Screen.HISTORY_FILTER, List.of(
                     new MenuButton("Сегодня", "/filter_today"), new MenuButton("Вчера", "/filter_yesterday"),
                     new MenuButton("Этот месяц", "/filter_month"), new MenuButton("Выбрать период", "/filter_period"),
@@ -23,12 +29,9 @@ public final class MenuCatalog {
                     new MenuButton("По сумме", "/filter_amount"), new MenuButton("По комментарию", "/filter_comment"),
                     new MenuButton("Сбросить поиск", "/filter_clear"))),
             Map.entry(Screen.EDITOR_CARD, List.of(
-                    new MenuButton("🔁 Повторить", "/repeat_operation"),
-                    new MenuButton("📅 Дата", "/edit_date"),
-                    new MenuButton("💰 Сумма", "/edit_amount"),
-                    new MenuButton("💬 Комментарий", "/edit_comment"),
-                    new MenuButton("🗑 Удалить", "/edit_delete"),
-                    new MenuButton("📜 К списку", "/edit_return"))),
+                    new MenuButton("📅 Дата", "/edit_date"), new MenuButton("💰 Сумма", "/edit_amount"),
+                    new MenuButton("📂 Перенести в категорию", "/edit_category"), new MenuButton("💬 Комментарий", "/edit_comment"),
+                    new MenuButton("🗑 Удалить", "/edit_delete"))),
             Map.entry(Screen.EDITOR_DELETE_CONFIRM, List.of(
                     new MenuButton("🗑 Да, удалить", "/edit_delete_confirm"),
                     new MenuButton("❌ Отмена", "/edit_delete_cancel"))),
@@ -36,13 +39,10 @@ public final class MenuCatalog {
                     new MenuButton("✅ Сохранить изменение", "/edit_confirm"),
                     new MenuButton("❌ Отменить правку", "/edit_cancel"))),
             Map.entry(Screen.SETTINGS, List.of(
-                    new MenuButton("💳 Долги", "/debts"),
-                    new MenuButton("📈 Аналитика", "/analytics"),
-                    new MenuButton("⏱ Лимиты", "/limits"),
-                    new MenuButton("🎯 Цели", "/goals"),
-                    new MenuButton("🔁 Регулярные", "/regular"),
-                    new MenuButton("🧹 Чат", "/chat_cleanup"),
-                    new MenuButton("📂 Разделы", "/sections"))),
+                    new MenuButton("💳 Долги", "/debts"), new MenuButton("🎯 Цели", "/goals"),
+                    new MenuButton("📈 Прогноз", "/forecast"), new MenuButton("📜 История", "/history_all"),
+                    new MenuButton("📊 Диаграммы", "/charts"), new MenuButton("🔁 Регулярные платежи", "/regular"),
+                    new MenuButton("⚙️ Настройки", "/preferences"))),
             Map.entry(Screen.ADD, List.of(
                     new MenuButton("💰 Доход", "/income"),
                     new MenuButton("💸 Расход", "/expense"),
@@ -61,8 +61,8 @@ public final class MenuCatalog {
                     new MenuButton("🔎 Фильтры", "/operations"),
                     new MenuButton("📅 По дате", "/history_date"),
                     new MenuButton("🗓 За период", "/history_period"),
-                    new MenuButton("⬅️ Новее", "/history_prev"),
-                    new MenuButton("Раньше ➡️", "/history_next"),
+                    new MenuButton("⬅️ Предыдущие", "/history_prev"),
+                    new MenuButton("➡️ Следующие", "/history_next"),
                     new MenuButton("✏️ Изменить операцию", "/history_edit"))),
             Map.entry(Screen.CHAT_CLEAN, List.of(
                     new MenuButton("🧹 Очистить сейчас", "/chat_clear"),
@@ -84,8 +84,9 @@ public final class MenuCatalog {
             Map.entry(Screen.PLAN_SECTION_DETAIL,List.of(new MenuButton("Разделы","/plan_sections"),new MenuButton("Категории","/plan_categories"),new MenuButton("Изменить план","/plan_edit"))),
             Map.entry(Screen.CHART_LEVEL,List.of(new MenuButton("По разделам","/chart_section_level"),new MenuButton("По категориям","/chart_category_level"))),
             Map.entry(Screen.REPORT_OPTIONS, List.of(
-                    new MenuButton("📊 С диаграммой", "/report_chart"),
-                    new MenuButton("📄 Без диаграммы", "/report"))),
+                    new MenuButton("📊 С диаграммами", "/report_chart"),
+                    new MenuButton("📄 Без диаграмм", "/report"),
+                    new MenuButton("📅 За дату", "/report_date"), new MenuButton("🗓 За период", "/report_period"))),
             Map.entry(Screen.CHART_THEME, List.of(
                     new MenuButton("🌙 Тёмная", "/chart_theme_dark"),
                     new MenuButton("☀️ Светлая", "/chart_theme_light"))),
@@ -161,19 +162,30 @@ public final class MenuCatalog {
         commands.forEach((command, label) -> text.append(command).append(": ")
                 .append(label).append('\n'));
         return text.append("\nВвод: 1250.50, продукты. Дробная часть через точку."
-                + "\nБыстрый ввод: −450.50, кофе / +50000, зарплата → категория. Повтор: история → операция → «Повторить».\n/back — назад; /undo — отмена. Справка не сбрасывает ввод.").toString();
+                + "\n/back — назад; /undo — отмена изменения.").toString();
+    }
+
+    public static boolean hasBack(Screen screen) {
+        return !java.util.Set.of(Screen.MAIN, Screen.HELP, Screen.REPORT_OPTIONS, Screen.REPORT).contains(screen);
+    }
+
+    public static String welcomeHelp() {
+        return "👋 FinanceOS · учёт финансов\n\n"
+                + "💸 Расход / 💰 Доход · записать операцию\n"
+                + "🧾 Чек · распознать и распределить покупку\n"
+                + "📊 Отчёт · баланс и статистика\n"
+                + "📋 Планы · планирование и сравнение с фактом\n"
+                + "⏳ Ожидают · подтверждение поступлений и платежей\n\n"
+                + "Выберите кнопкой или напишите название категории.\n"
+                + "Сумма и комментарий · 500.50, продукты\nДля дробных сумм используйте точку.\nБыстрый ввод · −450, кофе / +50000, зарплата.";
     }
 
     public static List<MenuButton> buttons(Screen screen) {
-        List<MenuButton> content = MENUS.getOrDefault(screen, List.of());
-        var result = new java.util.ArrayList<>(content);
-        if (!java.util.Set.of(Screen.CHAT_CLEAN, Screen.CHAT_CLEAR_CONFIRM, Screen.CHAT_CLEAR_RESULT, Screen.CHAT_AUTO, Screen.CHAT_AUTO_CONFIRM).contains(screen)) {
-            result.add(new MenuButton("↩️ Отменить", "/undo"));
-        }
-        if (screen != Screen.MAIN) {
-            result.add(new MenuButton("⬅️ Назад", "/back"));
-            result.add(new MenuButton("🏠 Меню", "/start"));
-        }
+        var result = new java.util.ArrayList<>(MENUS.getOrDefault(screen, List.of()));
+        if (screen == Screen.MAIN) return List.copyOf(result);
+        // Dedicated navigation footer; never let another button shift Back to the right.
+        if (hasBack(screen)) result.add(new MenuButton("⬅️ Назад", "/back"));
+        result.add(new MenuButton("🏠 Меню", "/start"));
         return List.copyOf(result);
     }
 }

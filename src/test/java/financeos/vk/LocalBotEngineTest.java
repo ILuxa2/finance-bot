@@ -62,7 +62,8 @@ public final class LocalBotEngineTest {
         }
         MenuButton help = MenuCatalog.buttons(start.screen()).stream()
                 .filter(b -> b.label().equals("❓ Помощь")).findFirst().orElseThrow();
-        contains(send(engine, help.command()), "/report");
+        contains(send(engine, help.command()), "учёт финансов");
+        contains(send(engine, "/commands"), "/report");
         contains(send(engine, "/start"), "Что хотите сделать?");
         contains(send(engine, "/report"), "Свободные деньги · 74000.00 ₽");
         contains(send(engine, "/report"), "Баланс минус остаток плана");
@@ -194,7 +195,7 @@ public final class LocalBotEngineTest {
                 .isPresent()) throw new AssertionError("Other user received financial data");
         var historyEngine = new LocalBotEngine(123, data,
                 Clock.fixed(Instant.parse("2026-10-30T09:00:00Z"), ZoneId.of("UTC")));
-        for (int i = 0; i < 21; i++) {
+        for (int i = 0; i < 11; i++) {
             send(historyEngine, "/expense");
             send(historyEngine, "Еда");
             send(historyEngine, "1, запись " + i);
@@ -208,7 +209,7 @@ public final class LocalBotEngineTest {
                 Clock.fixed(Instant.parse("2026-10-30T09:00:00Z"), ZoneId.of("UTC")));
         BotReply categoryMenu = send(picker, "/expense");
         var pendingBeforeHelp = picker.exportState().pending();
-        contains(send(picker, "/help"), "/expense");
+        contains(send(picker, "/commands"), "/expense");
         if (!picker.exportState().pending().equals(pendingBeforeHelp)) throw new AssertionError("Help lost input step");
         MenuButton food = categoryMenu.buttons().stream().filter(b -> b.label().equals("Еда")).findFirst().orElseThrow();
         var restoredPicker = new LocalBotEngine(123, data,

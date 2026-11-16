@@ -15,7 +15,7 @@ import java.util.Map;
 /** Pure edit calculation. The caller commits the entire result atomically with its undo snapshot. */
 public final class OperationEditor {
     private static final ZoneId MOSCOW = ZoneId.of("Europe/Moscow");
-    public enum Field { DATE, AMOUNT, COMMENT }
+    public enum Field { DATE, AMOUNT, COMMENT, CATEGORY }
     public record Change(List<LegacyUserData.TimedEntry> entries, List<Debt> debts, List<Goal> goals) {}
 
     public List<LegacyUserData.TimedEntry> operations(LegacyUserData base, List<LegacyUserData.TimedEntry> changes) {
@@ -125,6 +125,7 @@ public final class OperationEditor {
         OffsetDateTime timestamp = old.timestamp();
         BigDecimal amount = entry.amount();
         String description = entry.description();
+        String category = entry.category();
         switch (field) {
             case DATE -> {
                 if (!value.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")) throw new IllegalArgumentException("Введите дату ГГГГ-ММ-ДД.");
@@ -140,6 +141,11 @@ public final class OperationEditor {
                 try { amount = Money.of(value); }
                 catch (RuntimeException invalid) { throw new IllegalArgumentException("Введите сумму числом, дробную часть через точку."); }
                 if (amount.signum() <= 0) throw new IllegalArgumentException("Сумма должна быть больше нуля.");
+            }
+            case CATEGORY -> {
+                category = value.strip().replaceAll("\\s+", " ");
+                if (category.isBlank() || category.length()>80 || category.codePoints().anyMatch(Character::isISOControl))
+                    throw new IllegalArgumentException("Выберите название категории длиной до 80 символов.");
             }
             case COMMENT -> {
                 description = value.equals("-") ? "" : value.strip();
@@ -173,7 +179,7 @@ public final class OperationEditor {
         var result = new ArrayList<>(changes);
         result.removeIf(e -> e.entry().id().equals(id));
         result.add(new LegacyUserData.TimedEntry(timestamp, new LedgerEntry(id,
-                timestamp.atZoneSameInstant(MOSCOW).toLocalDate(), entry.kind(), amount, entry.category(), description, entry.planned())));
+                timestamp.atZoneSameInstant(MOSCOW).toLocalDate(), entry.kind(), amount, category, description, entry.planned())));
         return new Change(List.copyOf(result), List.copyOf(updatedDebts), List.copyOf(updatedGoals));
     }
 }

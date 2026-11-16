@@ -41,7 +41,7 @@ public final class EditOperationsTest {
                     return;
                 }
             }
-            var next = picker.buttons().stream().filter(b -> b.command().startsWith("/choices/") && b.label().contains("Далее")).findFirst();
+            var next = picker.buttons().stream().filter(b -> b.command().startsWith("/choices/") && b.label().contains("Следующие")).findFirst();
             if (next.isEmpty()) throw new AssertionError("Operation not offered " + operationId);
             picker = send(engine, next.get().command());
         }
@@ -63,7 +63,7 @@ public final class EditOperationsTest {
         try {
             var engine = new LocalBotEngine(123, DATA, CLOCK);
             var main = MenuCatalog.buttons(send(engine, "/start").screen());
-            if (main.stream().noneMatch(b -> b.label().contains("Все операции")) || main.stream().noneMatch(b -> b.command().equals("/operation_filters"))) throw new AssertionError("Main menu is missing edit/history shortcuts");
+            if (main.stream().noneMatch(b -> b.label().contains("Все операции")) || main.stream().noneMatch(b -> b.command().equals("/operations"))) throw new AssertionError("Main menu is missing edit/history shortcuts");
             contains(send(engine, "/report"), "Фактический баланс · 1200.00");
             select(engine, "legacy-row-2");
             send(engine, "/edit_amount");
@@ -136,7 +136,7 @@ public final class EditOperationsTest {
             }
             BotReply pageOne = send(paged, "/edit_operations");
             if (pageOne.buttons().stream().filter(b -> b.command().startsWith("/choose/")).count() != 5) throw new AssertionError("Editor does not show five records");
-            String nextPage = pageOne.buttons().stream().filter(b -> b.label().equals("➡️ Далее")).findFirst().orElseThrow().command();
+            String nextPage = pageOne.buttons().stream().filter(b -> b.label().equals("➡️ Следующие")).findFirst().orElseThrow().command();
             BotReply pageTwo = send(paged, nextPage);
             if (pageTwo.buttons().size() != 10 || pageTwo.buttons().stream().filter(b -> b.command().startsWith("/choose/")).count() != 5) throw new AssertionError("Middle editor page lost records or controls");
             var json = new com.fasterxml.jackson.databind.ObjectMapper().readTree(new VkKeyboardFactory().keyboard(pageTwo.buttons()));

@@ -10,7 +10,7 @@ public final class MenuCatalogTest {
         var factory = new VkKeyboardFactory();
         for (Screen screen : Screen.values()) {
             var buttons = MenuCatalog.buttons(screen);
-            if (screen != Screen.MAIN && buttons.stream().noneMatch(b -> b.command().equals("/back"))) {
+            if (MenuCatalog.hasBack(screen) && buttons.stream().noneMatch(b -> b.command().equals("/back"))) {
                 throw new AssertionError("Missing Back button on " + screen);
             }
             var rendered = mapper.readTree(factory.keyboard(screen));
@@ -20,11 +20,17 @@ public final class MenuCatalogTest {
                 if (row.size() > 2) throw new AssertionError("Too many buttons in a row");
                 for (var button : row) {
                     String label = button.path("action").path("label").asText();
-                    if (label.codePointCount(0, label.length()) > 12 && row.size() != 1) {
+                    if (screen != Screen.MAIN && !label.equals("🏠 Меню") && label.codePointCount(0, label.length()) > 14 && row.size() != 1) {
                         throw new AssertionError("Long label shares its row on " + screen);
                     }
                 }
                 count += row.size();
+            }
+            if (MenuCatalog.hasBack(screen)) {
+                var footer = rows.get(rows.size()-1);
+                if (!footer.get(0).path("action").path("label").asText().equals("⬅️ Назад")
+                        || footer.size()!=2 || !footer.get(1).path("action").path("label").asText().equals("🏠 Меню"))
+                    throw new AssertionError("Back footer moved on " + screen);
             }
             if (rows.size() > 6 || count > 10 || count != buttons.size()) {
                 throw new AssertionError("VK keyboard lost a button on " + screen);

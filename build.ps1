@@ -17,6 +17,10 @@ try {
     }
     $jars = @(Get-ChildItem -Path (Join-Path $root '.m2\com\fasterxml\jackson') -Filter '*.jar' -Recurse | ForEach-Object FullName)
     $classpath = (@((Join-Path $root 'target\test-classes'), (Join-Path $root 'target\classes')) + $jars) -join ';'
+    & $java -cp $classpath financeos.vk.OperationCategoryMoveTest
+    if ($LASTEXITCODE -ne 0) { throw "Operation category move checks failed" }
+    & $java -cp $classpath financeos.vk.InterfaceAgreementTest
+    if ($LASTEXITCODE -ne 0) { throw "Interface agreement checks failed" }
     & $java -cp $classpath financeos.vk.ReceiptTotalRegressionTest
     if ($LASTEXITCODE -ne 0) { throw "Receipt total regression failed" }
     & $java -cp $classpath financeos.cloud.ReceiptSharedTest

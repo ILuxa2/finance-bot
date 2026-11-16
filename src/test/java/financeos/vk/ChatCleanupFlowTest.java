@@ -14,7 +14,7 @@ public final class ChatCleanupFlowTest {
         var e=new LocalBotEngine(123,Set.of(123L,2000000001L),data,CLOCK);var dir=Files.createTempDirectory("chat-cleanup-");var path=dir.resolve("state.json");
         try{
             if(e.exportState().chatCleanup().days()!=0)throw new AssertionError("Cleanup must be opt in");
-            if(MenuCatalog.buttons(Screen.SETTINGS).stream().noneMatch(b->b.command().equals("/chat_cleanup")))throw new AssertionError("Chat button missing");
+            if(MenuCatalog.buttons(Screen.PREFERENCES).stream().noneMatch(b->b.command().equals("/chat_cleanup")))throw new AssertionError("Chat button missing");
             if(MenuCatalog.buttons(Screen.CHAT_CLEAR_RESULT).stream().anyMatch(b->b.command().equals("/undo")))throw new AssertionError("Irreversible cleanup offers financial Undo");
             if(MenuCatalog.commandHelp().length()>9000)throw new AssertionError("Help no longer fits a VK message");
             if(send(e,"/chat_clear_confirm").screen()==Screen.CHAT_CLEAR_RESULT)throw new AssertionError("Unconfirmed clear accepted");

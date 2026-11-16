@@ -144,10 +144,13 @@ public final class VkMessagesClientTest {
             }
             messages.clear();var bundleEvent=new VkEvent("message_new",99,123,123,"bundle","/report_chart");
             var bundle=new BotReply("Original report",Screen.REPORT,png,null,java.util.Collections.nCopies(11,png));client.send(bundleEvent,bundle);
-            if(messages.size()!=2)throw new AssertionError("12 charts not split into 10 + 2");var one=decode(messages.get(0));var two=decode(messages.get(1));
-            if(one.get("attachment").split(",").length!=10||two.get("attachment").split(",").length!=2||!one.get("message").equals("Original report")||!one.containsKey("keyboard")||two.containsKey("keyboard"))throw new AssertionError("Bundle lost charts/report/keyboard");
-            if(one.get("random_id").equals(two.get("random_id")))throw new AssertionError("Batch IDs collide");
-            messages.clear();client.send(bundleEvent,bundle);if(!decode(messages.get(0)).get("random_id").equals(one.get("random_id"))||!decode(messages.get(1)).get("random_id").equals(two.get("random_id")))throw new AssertionError("Retry duplicates batches");
+            if(messages.size()!=1)throw new AssertionError("Charts must be delivered in one message");
+            var one=decode(messages.getFirst());
+            if(one.get("attachment").split(",").length!=6 || !one.get("message").equals("Original report") || !one.containsKey("keyboard"))
+                throw new AssertionError("Composed bundle lost charts/report/keyboard");
+            messages.clear();client.send(bundleEvent,bundle);
+            if(messages.size()!=1 || !decode(messages.getFirst()).get("random_id").equals(one.get("random_id")))
+                throw new AssertionError("Retry duplicates the report");
         } finally {
             server.stop(0);
         }

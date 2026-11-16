@@ -5,7 +5,7 @@ public final class SectionPlanFactDetailTest {
  static void check(boolean v,String why){if(!v)throw new AssertionError(why);}
  static LegacyUserData.TimedEntry expense(String id,String category,String amount,OffsetDateTime time){return new LegacyUserData.TimedEntry(time,new LedgerEntry(id,time.toLocalDate(),EntryKind.EXPENSE,Money.of(amount),category,"QA",false));}
  static BotReply send(LocalBotEngine e,String text){var r=e.handle(new VkEvent("message_new",99,42,42,"section-detail-"+(++id),text)).orElseThrow();new VkKeyboardFactory().keyboard(r.buttons()==null?MenuCatalog.buttons(r.screen()):r.buttons());check(r.text().length()<=4096,"Page too long: "+r.text().length());return r;}
- static String next(BotReply r){return r.buttons().stream().filter(b->b.command().startsWith("/plan_page/")&&b.label().contains("Далее")).findFirst().orElseThrow().command();}
+ static String next(BotReply r){return r.buttons().stream().filter(b->b.command().startsWith("/plan_page/")&&b.label().contains("Следующие")).findFirst().orElseThrow().command();}
  static void configure(LocalBotEngine e,CategorySections config)throws Exception{var f=LocalBotEngine.class.getDeclaredField("categorySections");f.setAccessible(true);f.set(e,config);}
  public static void main(String[] args)throws Exception{
   var config=new CategorySections(List.of("Питание","Машина","Пусто","Доходы"),Map.of("Продукты","Питание","Вкусняшки","Питание","Без плана","Питание","Пустая категория","Питание","Архивная","Питание","Бензин","Машина"),Map.of("Еда","Вкусняшки","Еде","Вкусняшки"),Set.of("Архивная"));
@@ -26,7 +26,7 @@ public final class SectionPlanFactDetailTest {
   check(!all.contains("Показано")&&!all.contains("Сообщение сокращено"),"Categories silently truncated");
   var engine=new LocalBotEngine(42,large,CLOCK);configure(engine,groups);var r=send(engine,"/plan_fact_current");String stale=next(r);var filePath=Files.createTempFile("section-detail-",".json");
   try{var f=new LocalStateFile(filePath,42,large);f.save(engine.exportState());var other=new LocalBotEngine(42,large,CLOCK);other.restoreState(f.load().orElseThrow());engine=other;}finally{Files.delete(filePath);}
-  int visited=1;while(r.buttons().stream().anyMatch(b->b.command().startsWith("/plan_page/")&&b.label().contains("Далее"))){r=send(engine,next(r));if(++visited>100)throw new AssertionError("Page loop");}check(visited==pages.size(),"Engine lost pages");
+  int visited=1;while(r.buttons().stream().anyMatch(b->b.command().startsWith("/plan_page/")&&b.label().contains("Следующие"))){r=send(engine,next(r));if(++visited>100)throw new AssertionError("Page loop");}check(visited==pages.size(),"Engine lost pages");
   check(engine.exportState().entries().isEmpty()&&engine.exportState().plans().isEmpty()&&engine.exportState().planEdits().isEmpty(),"Views wrote finance");send(engine,"/start");check(send(engine,stale).text().contains("устарела"),"Old page hijacked another screen");
   send(engine,"/plan_fact_previous");check(send(engine,stale).text().contains("устарела"),"Old page switched month");
   send(engine,"/plan_fact_current");r=send(engine,"/plan_sections");r=send(engine,"Большой раздел");check(r.screen()==Screen.PLAN_SECTION_DETAIL&&r.text().contains("Категории раздела"),"Section detail missing");check(r.buttons().stream().anyMatch(b->b.command().startsWith("/plan_page/")),"Section detail not paginated");

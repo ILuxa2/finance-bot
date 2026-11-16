@@ -1,7 +1,7 @@
 package financeos.cloud;
 import financeos.vk.*;import java.time.*;import com.fasterxml.jackson.databind.node.*;
 public final class SectionPlanFactSharedTest {
- static String next(BotReply r){return r.buttons().stream().filter(b->b.command().startsWith("/plan_page/")&&b.label().contains("Далее")).findFirst().orElseThrow().command();}
+ static String next(BotReply r){return r.buttons().stream().filter(b->b.command().startsWith("/plan_page/")&&b.label().contains("Следующие")).findFirst().orElseThrow().command();}
  static void check(boolean c,String why){if(!c)throw new AssertionError(why);}
  public static void main(String[] args)throws Exception{
   SharedChatStateTest.main(args);String month=YearMonth.now(ZoneId.of("Europe/Moscow")).toString();

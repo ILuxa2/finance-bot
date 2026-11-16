@@ -40,10 +40,10 @@ public final class PlanningExperienceTest {
             send(engine,"/expense");send(engine,"Еда");send(engine,"10, проверка");
             send(engine,"/chart_theme_dark");engine=reload(engine,data,path);
             var dark=send(engine,"/report_chart");var image=ImageIO.read(new ByteArrayInputStream(dark.imagePng()));
-            if((image.getRGB(1,1)&0xffffff)!=0x12181c)throw new AssertionError("Dark background missing");
+            if((image.getRGB(1,1)&0xffffff)!=0x080b0e)throw new AssertionError("Dark background missing");
             send(engine,"/chart_theme_light");engine=reload(engine,data,path);
             var light=send(engine,"/chart_expenses");image=ImageIO.read(new ByteArrayInputStream(light.imagePng()));
-            if((image.getRGB(1,1)&0xffffff)!=0xf6f7f3)throw new AssertionError("Light preference lost");
+            if((image.getRGB(1,1)&0xffffff)!=0xf2f6f5)throw new AssertionError("Light preference lost");
             if(send(engine,"/report").imagePng()!=null)throw new AssertionError("Text report contains an image");
             System.out.println("Plan copy edits/months/restart/undo/duplicates, report selector and persisted chart themes passed.");
         } finally { Files.deleteIfExists(path);Files.deleteIfExists(dir); }

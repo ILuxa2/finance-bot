@@ -435,7 +435,7 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
         runAutomaticCleanup(current);
     }
 
-    private static BotReply emptyChatHelp(){return new BotReply(financeos.vk.MenuCatalog.commandHelp(),Screen.CHAT_CLEAR_RESULT,null,java.util.List.of());}
+    private static BotReply emptyChatHelp(){return new BotReply(financeos.vk.MenuCatalog.welcomeHelp(),Screen.CHAT_CLEAR_RESULT,null,java.util.List.of());}
 
     private boolean chatAllowed(long actor) throws IOException,InterruptedException {var current=members().authorizedMembers(chatPeerId,ownerId,allowedUsers);return !current.isEmpty()&&(actor==0||current.contains(actor));}
 
