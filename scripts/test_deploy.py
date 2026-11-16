@@ -1,5 +1,5 @@
 import copy,unittest
-from deploy import payload,IDS,ENTRY
+from deploy import payload,IDS,ENTRY,rejection_category,CloudRequestRejected
 class DeployGuards(unittest.TestCase):
  def fixture(self):return {"id":"old","functionId":IDS["processor"],"runtime":"java21","entrypoint":ENTRY["processor"],"serviceAccountId":"ajefkoc36mb0t28c0i5m","resources":{"memory":"1073741824"},"executionTimeout":"180s","concurrency":"1","environment":{"EXAMPLE":"nonsecret"},"secrets":[{"id":"test","versionId":"pinned","key":"token","environmentVariable":"TOKEN"}],"tags":["$latest"],"logOptions":{"disabled":False}}
  def test_configuration_copied_without_mutation(self):
@@ -11,4 +11,13 @@ class DeployGuards(unittest.TestCase):
   for key,value in (("functionId","foreign"),("runtime","python"),("entrypoint","other"),("serviceAccountId","other")):
    meta=self.fixture();meta[key]=value
    with self.assertRaises(RuntimeError):payload("processor",meta,"zip","0.18.15","a"*40)
+ def test_provider_error_is_classified_without_leaking_message(self):
+  raw=b'{"message":"Request payload too large: private-secret-value"}'
+  category=rejection_category(raw)
+  self.assertEqual(category,"request-size")
+  self.assertNotIn("private-secret-value",str(CloudRequestRejected(429,category)))
+ def test_rate_and_version_quota_are_distinct(self):
+  self.assertEqual(rejection_category(b'{"message":"Rate limit exceeded"}'),"rate-limit")
+  self.assertEqual(rejection_category(b'{"message":"Total size of all versions exceeds limit"}'),"version-storage-quota")
+  self.assertEqual(rejection_category(b'not json'),"unknown")
 if __name__=="__main__":unittest.main()
