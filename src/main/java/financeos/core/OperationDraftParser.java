@@ -11,8 +11,8 @@ public final class OperationDraftParser {
         }
         String amount = input.substring(0, comma).trim();
         String description = input.substring(comma + 1).trim();
-        if (description.isBlank()) {
-            throw new IllegalArgumentException("Message cannot be empty");
+        if (description.isBlank() || description.length() > 500) {
+            throw new IllegalArgumentException("Message must contain 1 to 500 characters");
         }
         var parsed = Money.of(amount);
         if (parsed.signum() <= 0) {

@@ -1,0 +1,51 @@
+name: Deploy Yandex Cloud
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Exact pom.xml version to deploy'
+        required: true
+        type: string
+      apply:
+        description: 'Deploy after checks (false = configuration check only)'
+        required: true
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: financeos-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and tests
+        run: python scripts/ci.py
+      - name: Deployment guard tests
+        run: python -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Deploy or inspect configuration
+        env:
+          YC_DEPLOY_SA_ID: ${{ vars.YC_DEPLOY_SA_ID }}
+          CONFIRM_VERSION: ${{ inputs.version }}
+          APPLY: ${{ inputs.apply }}
+        run: |
+          args=(--version "$CONFIRM_VERSION")
+          if [[ "$APPLY" == "true" ]]; then args+=(--apply); fi
+          python scripts/deploy.py "${args[@]}"

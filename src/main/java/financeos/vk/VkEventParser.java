@@ -61,7 +61,16 @@ public final class VkEventParser {
             String mention = "@club" + expectedGroupId + " ";
             if (text.startsWith(mention)) text = text.substring(mention.length()).strip();
             if (userId <= 0 || peerId <= 0 || id.isBlank()) throw new IOException("Incomplete VK message");
-            return new VkEvent(type, groupId, userId, peerId, id, text, conversationId);
+            var photos=new java.util.ArrayList<String>();
+            for(var attachment:message.path("attachments"))if(attachment.path("type").asText().equals("photo")){
+                String url="";long pixels=-1;
+                for(var size:attachment.path("photo").path("sizes")){
+                    long area=(long)size.path("width").asInt()*size.path("height").asInt();
+                    if(area>pixels&&!size.path("url").asText().isBlank()){url=size.path("url").asText();pixels=area;}
+                }
+                if(!url.isBlank()&&photos.size()<10)photos.add(url);
+            }
+            return new VkEvent(type, groupId, userId, peerId, id, text, conversationId,photos);
         }
         if (type.equals("message_event")) {
             long userId = object.path("user_id").asLong();

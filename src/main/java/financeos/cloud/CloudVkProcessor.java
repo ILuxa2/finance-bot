@@ -29,6 +29,8 @@ import java.util.function.Supplier;
 /** Object Storage trigger target. State and the reply are committed together before VK send. */
 public final class CloudVkProcessor implements Function<CloudVkProcessor.TriggerRequest, String> {
     private static final int MAX_REPLIES = 100;
+    private final java.util.concurrent.ConcurrentHashMap<String,Long> progressMessages=new java.util.concurrent.ConcurrentHashMap<>();
+    private final CloudMemoryCache memory = new CloudMemoryCache();
     private final HttpClient http;
     private final URI storageEndpoint;
     private final URI historyEndpoint;
@@ -40,6 +42,7 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
     private final String vkToken;
     private final long groupId;
     private final long ownerId;
+    private final Set<Long> allowedUsers;
     private final long chatPeerId;
     private final String backupKey;
     private final String stateKey;
@@ -60,6 +63,9 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
                      URI sendEndpoint, URI membersEndpoint, Supplier<String> iamToken,
                      String bucket, String vkToken, long groupId, long ownerId,
                      long chatPeerId, String backupKey, String stateKey) {
+        this(http,storageEndpoint,historyEndpoint,sendEndpoint,membersEndpoint,iamToken,bucket,vkToken,groupId,ownerId,chatPeerId,backupKey,stateKey,financeos.vk.ChatAccess.configured(ownerId));
+    }
+    CloudVkProcessor(HttpClient http,URI storageEndpoint,URI historyEndpoint,URI sendEndpoint,URI membersEndpoint,Supplier<String> iamToken,String bucket,String vkToken,long groupId,long ownerId,long chatPeerId,String backupKey,String stateKey,Set<Long> users){
         this.http = http;
         this.storageEndpoint = storageEndpoint;
         this.historyEndpoint = historyEndpoint;
@@ -70,6 +76,8 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
         this.vkToken = vkToken;
         this.groupId = groupId;
         this.ownerId = ownerId;
+        this.allowedUsers=Set.copyOf(users);
+        if(!allowedUsers.contains(ownerId))throw new IllegalArgumentException("Missing owner");
         this.chatPeerId = chatPeerId;
         this.backupKey = backupKey;
         this.stateKey = stateKey;
@@ -98,30 +106,100 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
                 if (!(keyValue instanceof String key) || !key.matches("inbox/[0-9a-f]{64}\\.json")) continue;
                 process(key);
             }
-            new CloudSheetsSync().sync();
+            retryPendingReplies();
             return "ok";
         } catch (Exception failure) {
             if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
-            throw new IllegalStateException("VK event processing failed; trigger should retry", failure);
+            throw new IllegalStateException("VK event processing failed; trigger should retry; " + safeFailure(failure), failure);
         }
+    }
+
+    static String safeFailure(Throwable failure) {
+        var result = new StringBuilder();
+        for (int i = 0; failure != null && i < 8; i++, failure = failure.getCause()) {
+            if (i > 0) result.append(" / ");
+            result.append(failure.getClass().getSimpleName());
+            String message = failure.getMessage();
+            if (message != null && message.matches("(?:VK (?:photo API error |API error |history API error )|Object Storage (?:read|write) failed with HTTP )[0-9]{1,3}")) {
+                result.append(": ").append(message);
+            }
+            if (failure.getStackTrace().length > 0) {
+                var frame = failure.getStackTrace()[0];
+                result.append("@").append(frame.getClassName()).append(":").append(frame.getLineNumber());
+            }
+        }
+        return result.toString();
     }
 
     private void process(String inboxKey) throws Exception {
         byte[] eventBytes = store(inboxKey).load()
                 .orElseThrow(() -> new IOException("VK event object is missing")).bytes();
         VkEvent event = mapper.readValue(eventBytes, VkEvent.class);
-        if (event.groupId() != groupId || event.userId() != ownerId
-                || (event.peerId() != ownerId && event.peerId() != chatPeerId)) return;
-        if (event.peerId() == chatPeerId && !members().onlyOwnerAndCommunity(chatPeerId, ownerId)) {
-            return;
-        }
-        if ("message_new".equals(event.type())) {
-            if (event.conversationMessageId() <= 0) {
-                throw new IOException("VK event lacks conversation message ID");
+        if (event.groupId() != groupId || !financeos.vk.ChatAccess.eventAllowed(event.userId(),event.peerId(),ownerId,chatPeerId,allowedUsers)) return;
+        try {
+            if (event.peerId() == chatPeerId && !chatAllowed(event.userId())) {
+                return;
             }
-            processHistory(event);
-        } else {
-            processSingle(event);
+            processingNotice(event);
+            if ("message_new".equals(event.type())) {
+                if (event.conversationMessageId() <= 0) {
+                    throw new IOException("VK event lacks conversation message ID");
+                }
+                processHistory(event);
+            } else {
+                processSingle(event, false);
+            }
+        } catch (Exception failure) {
+            if (!(failure instanceof ReportedFailure)) reportFailure(event, failure, Outcome.UNKNOWN);
+            throw failure;
+        }
+    }
+
+    private void processingNotice(VkEvent event) {
+        if("/chat_clear_confirm".equals(event.text()))return;
+        // Do not wait for financial storage to acknowledge a click. VK deduplicates
+        // retried notices using this action's stable, separate random_id.
+        try {
+            long id=sender().notice(new VkEvent(event.type(), event.groupId(), event.userId(), event.peerId(),
+                    event.eventId() + ":progress", ""), "⏳ Обрабатываю…");
+            if(isPagination(event)){if(progressMessages.size()>=MAX_REPLIES)progressMessages.clear();progressMessages.put(CloudVkIngress.eventId(event),id);}
+        } catch (Exception unavailable) {
+            System.err.println("VK processing notice unavailable event=" + CloudVkIngress.eventId(event));
+        }
+    }
+
+    private enum Outcome { NOT_SAVED, SAVED, UNKNOWN }
+    private static final class ReportedFailure extends Exception {
+        ReportedFailure(Exception cause) { super("Event failed; user notification attempted", cause); }
+    }
+
+    private void reportFailure(VkEvent event, Exception failure, Outcome outcome) {
+        String id = CloudVkIngress.eventId(event);
+        System.err.println("VK processing failed event=" + id + " type=" + failure.getClass().getSimpleName());
+        // A failed PUT can have succeeded. Only report 'not saved' before any commit attempt
+        // and after a fresh read confirms that no result exists.
+        try {
+            var current = store(stateKey).load();
+            if (current.isPresent()) {
+                var envelope = mapper.readValue(current.get().bytes(), Envelope.class);
+                if (envelope.replies().containsKey(id)) outcome = Outcome.SAVED;
+            } else if (outcome != Outcome.SAVED) outcome = Outcome.UNKNOWN;
+        } catch (Exception checkFailed) {
+            if (outcome != Outcome.SAVED) outcome = Outcome.UNKNOWN;
+        }
+        String text = switch (outcome) {
+            case SAVED -> "⚠️ Данные сохранены, но отправка ответа задержалась."
+                    + " Повторно вводить операцию не нужно. Повторю отправку автоматически.";
+            case NOT_SAVED -> "⚠️ Действие пока не выполнено: изменения не сохранены."
+                    + " Повторю попытку автоматически. Не вводите операцию повторно.";
+            case UNKNOWN -> "⚠️ Не удалось завершить обработку. Проверяю результат сохранения."
+                    + " Повторю попытку автоматически. Не вводите операцию повторно.";
+        };
+        try {
+            sender().notice(new VkEvent(event.type(), event.groupId(), event.userId(), event.peerId(),
+                    event.eventId() + ":error", ""), text + " Код: " + id.substring(0, 8));
+        } catch (Exception notificationFailed) {
+            System.err.println("VK error notification unavailable event=" + id);
         }
     }
 
@@ -136,14 +214,14 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
             return;
         }
         var history = new VkHistoryClient(http, historyEndpoint, vkToken, groupId);
-        var pending = history.since(requested.peerId(), ownerId,
+        var pending = history.since(requested.peerId(), requested.peerId()==chatPeerId?members().authorizedMembers(chatPeerId,ownerId,allowedUsers):Set.of(ownerId),
                 envelope.lastConversationMessageId());
         boolean foundRequested = false;
         for (var ordered : pending) {
             if (ordered.conversationMessageId() == requested.conversationMessageId()) {
                 foundRequested = true;
             }
-            processSingle(ordered);
+            processSingle(ordered, ordered.conversationMessageId() != requested.conversationMessageId());
         }
         if (!foundRequested) {
             var latest = store(stateKey).load()
@@ -156,73 +234,113 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
     }
 
     private void processSingle(VkEvent event) throws Exception {
-        String key = CloudVkIngress.eventId(event);
-        byte[] backup = store(backupKey).load()
-                .orElseThrow(() -> new IOException("Financial base snapshot is missing")).bytes();
-        for (int attempt = 0; attempt < 6; attempt++) {
-            var current = store(stateKey).load();
-            Envelope envelope = current.map(snapshot -> {
-                try { return mapper.readValue(snapshot.bytes(), Envelope.class); }
-                catch (IOException invalid) { throw new IllegalStateException("Invalid cloud state", invalid); }
-            }).orElseThrow(() -> new IOException("Cloud state is not initialized"));
-            if (envelope.version() != 1) throw new IOException("Unsupported cloud state version");
-            if (event.conversationMessageId() > 0
-                    && event.conversationMessageId() <= envelope.lastConversationMessageId()) {
-                SavedReply saved = envelope.replies().get(key);
-                if (saved != null) send(event, saved);
-                return;
+        processSingle(event, true);
+    }
+
+    private void processSingle(VkEvent event, boolean announce) throws Exception {
+        if(!financeos.vk.ChatAccess.afterActivation(event,ownerId,financeos.vk.ChatAccess.memberStart()))return;
+        Outcome outcome = Outcome.UNKNOWN;
+        try {
+            String key = CloudVkIngress.eventId(event);
+            for (int attempt = 0; attempt < 6; attempt++) {
+                var current = store(stateKey).load();
+                Envelope envelope = current.map(snapshot -> {
+                    try { return mapper.readValue(snapshot.bytes(), Envelope.class); }
+                    catch (IOException invalid) { throw new IllegalStateException("Invalid cloud state", invalid); }
+                }).orElseThrow(() -> new IOException("Cloud state is not initialized"));
+                if (envelope.version() != 1) throw new IOException("Unsupported cloud state version");
+                if (event.conversationMessageId() > 0
+                        && event.conversationMessageId() <= envelope.lastConversationMessageId()) {
+                    SavedReply saved = envelope.replies().get(key);
+                    if (saved != null) { outcome = Outcome.SAVED; send(event, saved); }
+                    return;
+                }
+                SavedReply already = envelope.replies().get(key);
+                if (already != null) {
+                    outcome = Outcome.SAVED;
+                    send(event, already);
+                    return;
+                }
+                outcome = Outcome.NOT_SAVED;
+                if (announce) { processingNotice(event); announce = false; }
+                byte[] backup = store(backupKey).load()
+                        .orElseThrow(() -> new IOException("Financial base snapshot is missing")).bytes();
+                Result result = calculate(backup, envelope.stateBase64(), event);
+                LinkedHashMap<String, SavedReply> replies = new LinkedHashMap<>(envelope.replies());
+                replies.put(key, SavedReply.from(result.reply()).forEvent(event).withProgress(progressMessages.getOrDefault(key,0L)));
+                while (replies.size() > MAX_REPLIES) {
+                    String oldestOrdinary = replies.keySet().stream()
+                            .filter(candidate -> !candidate.startsWith("scheduled:")
+                                    && replies.get(candidate).delivered())
+                            .findFirst().orElse(null);
+                    if (oldestOrdinary == null) break;
+                    replies.remove(oldestOrdinary);
+                }
+                byte[] updated = mapper.writeValueAsBytes(new Envelope(1,
+                        Base64.getEncoder().encodeToString(result.state()), replies,
+                        envelope.notified(), envelope.morningDate(),
+                        Math.max(envelope.lastConversationMessageId(),
+                                event.conversationMessageId())));
+                String expected = current.map(ObjectStorageStateStore.Snapshot::etag).orElse(null);
+                boolean financialChange=FinanceSnapshots.changed(envelope.stateBase64(),result.state());
+                if(financialChange){byte[] prior=Base64.getDecoder().decode(envelope.stateBase64());String keyBefore=FinanceSnapshots.eventKey(prior,java.time.Instant.now());var destination=store(keyBefore);byte[] recovery=FinanceSnapshots.encode(prior,java.time.Instant.now());if(!destination.save(null,recovery))FinanceSnapshots.validate(destination.load().orElseThrow().bytes());}
+                outcome = Outcome.UNKNOWN;
+                if (store(stateKey).save(expected, updated)) {
+                    outcome = Outcome.SAVED;
+                    send(event, replies.get(key));
+                    if(financialChange)try{retention().trimEvents();}catch(Exception maintenance){if(maintenance instanceof InterruptedException)Thread.currentThread().interrupt();System.err.println("Recovery retention deferred: "+maintenance.getClass().getSimpleName());}
+                    return;
+                }
             }
-            SavedReply already = envelope.replies().get(key);
-            if (already != null) {
-                send(event, already);
-                return;
-            }
-            Result result = calculate(backup, envelope.stateBase64(), event);
-            LinkedHashMap<String, SavedReply> replies = new LinkedHashMap<>(envelope.replies());
-            replies.put(key, SavedReply.from(result.reply()));
-            while (replies.size() > MAX_REPLIES) {
-                String oldestOrdinary = replies.keySet().stream()
-                        .filter(candidate -> !candidate.startsWith("scheduled:"))
-                        .findFirst().orElse(null);
-                if (oldestOrdinary == null) break;
-                replies.remove(oldestOrdinary);
-            }
-            byte[] updated = mapper.writeValueAsBytes(new Envelope(1,
-                    Base64.getEncoder().encodeToString(result.state()), replies,
-                    envelope.notified(), envelope.morningDate(),
-                    Math.max(envelope.lastConversationMessageId(),
-                            event.conversationMessageId())));
-            String expected = current.map(ObjectStorageStateStore.Snapshot::etag).orElse(null);
-            if (store(stateKey).save(expected, updated)) {
-                send(event, replies.get(key));
-                return;
-            }
+            throw new IOException("Concurrent financial state writes did not settle");
+        } catch (Exception failure) {
+            reportFailure(event, failure, outcome);
+            if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new ReportedFailure(failure);
         }
-        throw new IOException("Concurrent financial state writes did not settle");
     }
 
     private Result calculate(byte[] backup, String previousState, VkEvent event) throws Exception {
+        if(!financeos.vk.ChatAccess.eventAllowed(event.userId(),event.peerId(),ownerId,chatPeerId,allowedUsers)||!financeos.vk.ChatAccess.afterActivation(event,ownerId,financeos.vk.ChatAccess.memberStart()))return new Result(Base64.getDecoder().decode(previousState),null);
         Path directory = Files.createTempDirectory("financeos-cloud-");
         Path backupFile = directory.resolve("base.json");
         Path stateFile = directory.resolve("state.json");
         try {
             Files.write(backupFile, backup);
-            var sheets = new LocalSheetBackupReader().read(backupFile);
-            var legacyIds = new TreeSet<String>();
-            for (var row : sheets.get("StartupState")) {
-                String id = row.getOrDefault("telegram_user_id", "");
-                if (!id.isBlank()) legacyIds.add(id);
-            }
-            if (legacyIds.size() != 1) throw new IOException("Expected one financial user");
-            var data = new LegacyDataMapper().user(sheets, legacyIds.first());
+            var data = memory.base(backup, () -> {
+                var sheets = new LocalSheetBackupReader().read(backupFile);
+                var legacyIds = new TreeSet<String>();
+                for (var row : sheets.get("StartupState")) {
+                    String id = row.getOrDefault("telegram_user_id", "");
+                    if (!id.isBlank()) legacyIds.add(id);
+                }
+                if (legacyIds.size() != 1) throw new IOException("Expected one financial user");
+                return new LegacyDataMapper().user(sheets, legacyIds.first());
+            });
             var localFile = new LocalStateFile(stateFile, ownerId, data);
-            if (!previousState.isBlank()) Files.write(stateFile, Base64.getDecoder().decode(previousState));
             var engine = new LocalBotEngine(ownerId, Set.of(ownerId, chatPeerId), data,
-                    Clock.system(ZoneId.of("Europe/Moscow")));
-            localFile.load().ifPresent(engine::restoreState);
-            BotReply reply = engine.handle(event).orElse(null);
-            localFile.save(engine.exportState());
-            return new Result(Files.readAllBytes(stateFile), reply);
+                    Clock.system(ZoneId.of("Europe/Moscow")),allowedUsers).receiptReader(financeos.vk.YandexReceiptReader.configured(http,iamToken));
+            com.fasterxml.jackson.databind.node.ObjectNode prepared=null;
+            if(allowedUsers.size()>1){
+                localFile.save(engine.exportState());
+                var defaults=(com.fasterxml.jackson.databind.node.ObjectNode)mapper.readTree(Files.readAllBytes(stateFile));
+                var previous=previousState.isBlank()?defaults:(com.fasterxml.jackson.databind.node.ObjectNode)mapper.readTree(Base64.getDecoder().decode(previousState));
+                prepared=SharedChatState.prepare(previous,defaults,ownerId,event.userId());
+                Files.write(stateFile,mapper.writeValueAsBytes(prepared));localFile.load().ifPresent(engine::restoreState);
+            }else{
+                if(!previousState.isBlank())Files.write(stateFile,Base64.getDecoder().decode(previousState));
+                memory.state(previousState,data,ownerId,localFile::load).ifPresent(engine::restoreState);
+            }
+            boolean wrongCleanupPeer = event.text() != null && event.text().startsWith("/chat_") && (event.peerId() != chatPeerId || event.userId()!=ownerId);
+            BotReply reply = wrongCleanupPeer
+                    ? new BotReply("ℹ️ Управление очисткой доступно только в настроенной беседе с сообществом и только владельцу бюджета.", Screen.MAIN)
+                    : engine.handle(event).orElse(null);
+            var nextState = engine.exportState();
+            localFile.save(nextState);
+            byte[] encoded = Files.readAllBytes(stateFile);
+            if(prepared!=null)encoded=mapper.writeValueAsBytes(SharedChatState.finish(prepared,(com.fasterxml.jackson.databind.node.ObjectNode)mapper.readTree(encoded),event.userId()));
+            memory.rememberState(Base64.getEncoder().encodeToString(encoded), data, ownerId, java.util.Optional.of(nextState));
+            return new Result(encoded, reply);
         } finally {
             Files.deleteIfExists(stateFile);
             Files.deleteIfExists(backupFile);
@@ -231,9 +349,195 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
     }
 
     private void send(VkEvent event, SavedReply reply) throws Exception {
-        new CloudSheetsSync().sync();
+        if (reply.delivered()) return;
+        if(!financeos.vk.ChatAccess.eventAllowed(event.userId(),event.peerId(),ownerId,chatPeerId,allowedUsers))throw new IOException("Reply recipient is not authorized");
+        if(event.peerId()==chatPeerId&&!chatAllowed(event.userId()))throw new IOException("Reply conversation is not authorized");
         BotReply value = reply.toReply();
-        if (value != null) sender().send(event, value);
+        long messageId = 0;
+        if (value != null) {
+            if ("/chat_clear_confirm".equals(event.text()) && value.screen() == Screen.CHAT_CLEAR_RESULT) {
+                var current = store(stateKey).load().orElseThrow();
+                Envelope envelope = mapper.readValue(current.bytes(), Envelope.class);
+                boolean waiting = envelope.replies().entrySet().stream().anyMatch(item -> !item.getKey().equals(CloudVkIngress.eventId(event))
+                        && item.getValue().event() != null && !item.getValue().delivered());
+                String text;
+                if (event.peerId() != chatPeerId || event.conversationMessageId() <= 0) {
+                    text = "ℹ️ Очистка доступна только в настроенной беседе с сообществом.";
+                } else if (waiting || envelope.lastConversationMessageId() < event.conversationMessageId()) {
+                    text = "⚠️ Очистка отложена: есть незавершённые ответы. Дождитесь их и запустите очистку заново. Финансовые данные сохранены.";
+                } else {
+                    var cleaner=cleaner();
+                    var result=cleaner.clean(Math.min(envelope.lastConversationMessageId(), event.conversationMessageId()), java.time.Instant.now().plusSeconds(1));
+                    if(result.refused()==0 && !result.more() && result.blocked().isBlank() && cleaner.isEmpty()) {
+                        value=emptyChatHelp();text=null;
+                    }else text=result.text();
+                }
+                if(text!=null)value = new BotReply(text, Screen.CHAT_CLEAR_RESULT);
+            }
+            long target = paginationTarget(event, value);
+            if (target > 0) {
+                try { messageId = sender().edit(event, value, target); }
+                catch (java.io.IOException editUnavailable) { messageId = sender().send(event, value); }
+            } else messageId = sender().send(event, value);
+        }
+        finishPageProgress(event,reply,value);
+        markDelivered(CloudVkIngress.eventId(event), messageId);
+        progressMessages.remove(CloudVkIngress.eventId(event));
+    }
+
+    private static boolean isPagination(VkEvent event){String c=event.text()==null?"":event.text();return c.startsWith("/expense_chart_page/")||c.startsWith("/plan_page/")||c.startsWith("/choices/EDIT_SELECT/")||c.startsWith("/choices/HISTORY_EDIT_SELECT/")||c.equals("/history_next")||c.equals("/history_prev");}
+    private void finishPageProgress(VkEvent event,SavedReply saved,BotReply value){
+        if(!isPagination(event)||saved.progressMessageId()<=0||value==null)return;
+        String status="✅ Готово · "+value.text().lines().findFirst().orElse("Страница обновлена");
+        try{sender().edit(event,new BotReply(status,Screen.HISTORY,null,java.util.List.of()),saved.progressMessageId());}
+        catch(Exception unavailable){
+            if(unavailable instanceof InterruptedException){Thread.currentThread().interrupt();return;}
+            try{sender().notice(new VkEvent(event.type(),event.groupId(),event.userId(),event.peerId(),event.eventId()+":page-done",""),status);}
+            catch(Exception failure){if(failure instanceof InterruptedException)Thread.currentThread().interrupt();System.err.println("Page completion notice unavailable event="+CloudVkIngress.eventId(event));}
+        }
+    }
+
+    private long paginationTarget(VkEvent event, BotReply reply) throws Exception {
+        if(!isPagination(event)||reply==null||reply.imagePng()!=null)return 0;
+        var snapshot = store(stateKey).load().orElseThrow();
+        var envelope = mapper.readValue(snapshot.bytes(), Envelope.class);
+        // Only the immediately preceding delivered view is reusable. Never overwrite an old
+        // page after a different section has intervened. This path never recalculates a financial action.
+        var replies = new java.util.ArrayList<>(envelope.replies().values());
+        for (int i = replies.size() - 1; i >= 0; i--) {
+            var old = replies.get(i);
+            if (!old.delivered() || old.event() == null || old.event().peerId() != event.peerId()) continue;
+            return old.event().userId()==event.userId() && old.screen() == reply.screen() ? old.messageId() : 0;
+        }
+        return 0;
+    }
+
+    /** Outbox survives cold starts and send failures. No financial action is recomputed. */
+    public void retryPendingReplies() throws Exception {
+        var current = store(stateKey).load()
+                .orElseThrow(() -> new IOException("Cloud state is not initialized"));
+        Envelope envelope = mapper.readValue(current.bytes(), Envelope.class);
+        boolean needsChatCheck = envelope.replies().values().stream().anyMatch(reply ->
+                reply.event() != null && !reply.delivered() && reply.event().peerId() == chatPeerId);
+        if (needsChatCheck && !chatAllowed(0)) {
+            throw new IOException("Pending reply conversation membership is not authorized");
+        }
+        for (var entry : envelope.replies().entrySet()) {
+            SavedReply reply = entry.getValue();
+            if (reply.event() != null && !reply.delivered()) {
+                try { send(reply.event(), reply); }
+                catch (Exception failure) {
+                    reportFailure(reply.event(), failure, Outcome.SAVED);
+                    throw new ReportedFailure(failure);
+                }
+            }
+        }
+        runAutomaticCleanup(current);
+    }
+
+    private static BotReply emptyChatHelp(){return new BotReply(financeos.vk.MenuCatalog.commandHelp(),Screen.CHAT_CLEAR_RESULT,null,java.util.List.of());}
+
+    private boolean chatAllowed(long actor) throws IOException,InterruptedException {var current=members().authorizedMembers(chatPeerId,ownerId,allowedUsers);return !current.isEmpty()&&(actor==0||current.contains(actor));}
+
+    private StorageRetention retention(){return new StorageRetention(http,storageEndpoint,bucket,iamToken,stateKey);}
+    public void maintainStorage()throws Exception{
+        var snapshot=store(stateKey).load().orElseThrow();var envelope=mapper.readValue(snapshot.bytes(),Envelope.class);if(envelope.stateBase64().isBlank())return;
+        var now=java.time.Instant.now();byte[] financial=FinanceSnapshots.encode(Base64.getDecoder().decode(envelope.stateBase64()),now);var daily=store(FinanceSnapshots.dailyKey(now));if(!daily.save(null,financial))FinanceSnapshots.validate(daily.load().orElseThrow().bytes());
+        var result=retention().maintain(envelope,groupId,chatPeerId,now);System.out.println("Storage maintenance bytes="+result.bytes()+" removed="+result.removed()+" incomplete="+result.incomplete());
+        long limit=Long.parseLong(System.getenv().getOrDefault("FINANCEOS_STORAGE_LIMIT_BYTES","1073741824"));
+        if(result.bytes()>limit*3/4||result.incomplete())if(chatAllowed(0))sender().notice(new VkEvent("scheduled",groupId,ownerId,chatPeerId,"storage-warning:"+now.atZone(ZoneId.of("Europe/Moscow")).toLocalDate(),""),"⚠️ Хранилище бота: требуется проверка. Занято около "+(result.bytes()/1048576)+" МиБ из "+(limit/1048576)+" МиБ."+(result.incomplete()?" Очистка завершена частично.":""));
+    }
+
+    private financeos.vk.VkChatCleaner cleaner() {
+        return new financeos.vk.VkChatCleaner(http, sendEndpoint, vkToken, groupId, ownerId, chatPeerId,allowedUsers);
+    }
+
+    /** Optional maintenance uses the existing event/daily invocations, never a separate timer. */
+    public void runAutomaticCleanup() { runAutomaticCleanup(null); }
+    private void runAutomaticCleanup(ObjectStorageStateStore.Snapshot initial) {
+        boolean eligible = false;
+        try {
+            var zone = ZoneId.of("Europe/Moscow");
+            var instant = java.time.Instant.now();
+            String today = instant.atZone(zone).toLocalDate().toString();
+            for (int attempt = 0; attempt < 6; attempt++) {
+                var current = attempt == 0 && initial != null ? initial : store(stateKey).load().orElseThrow();
+                var envelope = mapper.readValue(current.bytes(), Envelope.class);
+                var root = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(Base64.getDecoder().decode(envelope.stateBase64()));
+                var settings = financeos.vk.ChatCleanupSettings.read(root);
+                if (settings.days() == 0 || settings.lastDate().equals(today)) return;
+                if (envelope.replies().values().stream().anyMatch(r -> r.event() != null && !r.delivered())) return;
+                eligible = true;
+                // Reserve this calendar day before remote deletion. A failure cannot create a retry storm.
+                new financeos.vk.ChatCleanupSettings(settings.days(), today).write(root);
+                var next = new Envelope(1, Base64.getEncoder().encodeToString(mapper.writeValueAsBytes(root)),
+                        envelope.replies(), envelope.notified(), envelope.morningDate(), envelope.lastConversationMessageId());
+                if (!store(stateKey).save(current.etag(), mapper.writeValueAsBytes(next))) continue;
+                var check = store(stateKey).load().orElseThrow();
+                var checkEnvelope = mapper.readValue(check.bytes(), Envelope.class);
+                var checkSettings = financeos.vk.ChatCleanupSettings.read(mapper.readTree(Base64.getDecoder().decode(checkEnvelope.stateBase64())));
+                if (checkSettings.days() != settings.days() || !checkSettings.lastDate().equals(today)) return;
+                // A fresh private-chat check is made inside the cleaner, before any delete.
+                var result = cleaner().clean(envelope.lastConversationMessageId(), instant.minus(java.time.Duration.ofDays(settings.days())));
+                if (result.refused() > 0 || result.more() || !result.blocked().isBlank()) {
+                    if (chatAllowed(0)) sender().notice(new VkEvent("scheduled", groupId, ownerId, chatPeerId,
+                            "auto-cleanup:" + today, ""), "⚠️ Автоочистка\n" + result.text());
+                }
+                else if (result.removed()>0 && cleaner().isEmpty() && chatAllowed(0)) {
+                    sender().send(new VkEvent("scheduled",groupId,ownerId,chatPeerId,"auto-cleanup-help:"+today,""),emptyChatHelp());
+                }
+                return;
+            }
+        } catch (Exception failure) {
+            if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+            System.err.println("Automatic cleanup failed: " + safeFailure(failure));
+            if (eligible && !(failure instanceof InterruptedException)) {
+                try {
+                    if (chatAllowed(0)) sender().notice(new VkEvent("scheduled", groupId, ownerId, chatPeerId,
+                            "auto-cleanup:" + java.time.LocalDate.now(ZoneId.of("Europe/Moscow")), ""),
+                            "⚠️ Автоочистка не завершилась. Финансовые данные сохранены. Очистку можно повторить кнопкой «Чат» → «Очистить сейчас».");
+                } catch (Exception unavailable) { System.err.println("Cleanup notification unavailable"); }
+            }
+        }
+    }
+
+    /** Called by the existing daily timer to recover callbacks whose trigger retries ran out. */
+    public void recoverConversation() throws Exception {
+        if (!chatAllowed(0)) {
+            throw new IOException("Recovery conversation membership is not authorized");
+        }
+        var snapshot = store(stateKey).load().orElseThrow();
+        Envelope envelope = mapper.readValue(snapshot.bytes(), Envelope.class);
+        var pending = new VkHistoryClient(http, historyEndpoint, vkToken, groupId)
+                .since(chatPeerId, members().authorizedMembers(chatPeerId,ownerId,allowedUsers), envelope.lastConversationMessageId());
+        for (VkEvent event : pending) {
+            try { processSingle(event); }
+            catch (Exception failure) {
+                if (!(failure instanceof ReportedFailure)) reportFailure(event, failure, Outcome.UNKNOWN);
+                throw failure;
+            }
+        }
+        retryPendingReplies();
+    }
+
+    private void markDelivered(String key, long messageId) throws Exception {
+        for (int attempt = 0; attempt < 6; attempt++) {
+            var current = store(stateKey).load().orElseThrow();
+            Envelope envelope = mapper.readValue(current.bytes(), Envelope.class);
+            SavedReply reply = envelope.replies().get(key);
+            if (reply == null || reply.delivered()) return;
+            var replies = new LinkedHashMap<>(envelope.replies());
+            replies.put(key, reply.asDelivered(messageId));
+            Envelope next = new Envelope(1, envelope.stateBase64(), replies,
+                    envelope.notified(), envelope.morningDate(), envelope.lastConversationMessageId());
+            if (store(stateKey).save(current.etag(), mapper.writeValueAsBytes(next))) return;
+        }
+        throw new IOException("Could not mark VK reply delivered");
+    }
+
+    private static String sha256(byte[] bytes) throws Exception {
+        return java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
     }
 
     private VkMessagesClient sender() {
@@ -245,8 +549,11 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
     }
 
     private ObjectStorageStateStore store(String key) {
-        return new ObjectStorageStateStore(http, storageEndpoint, bucket, key, iamToken);
+        return new ObjectStorageStateStore(http, storageEndpoint, bucket, key, iamToken,
+                key.equals(backupKey) || key.equals(stateKey) ? memory : null);
     }
+
+    CloudMemoryCache.Stats cacheStats() { return memory.stats(); }
 
     private static String required(String name) {
         String value = System.getenv(name);
@@ -274,16 +581,35 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
         }
     }
 
-    public record SavedReply(String text, Screen screen, String imageBase64) {
+    public record SavedReply(String text, Screen screen, String imageBase64,
+                             java.util.List<financeos.vk.MenuButton> buttons,
+                             VkEvent event, boolean delivered, long messageId,long progressMessageId, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) java.util.List<String> additionalImages) {
+        public SavedReply(String text,Screen screen,String imageBase64,java.util.List<financeos.vk.MenuButton> buttons,VkEvent event,boolean delivered,long messageId,long progressMessageId){this(text,screen,imageBase64,buttons,event,delivered,messageId,progressMessageId,null);}
+        public SavedReply(String text,Screen screen,String imageBase64,java.util.List<financeos.vk.MenuButton> buttons,VkEvent event,boolean delivered,long messageId){this(text,screen,imageBase64,buttons,event,delivered,messageId,0);}
+        public SavedReply(String text, Screen screen, String imageBase64,
+                          java.util.List<financeos.vk.MenuButton> buttons, VkEvent event, boolean delivered) {
+            this(text, screen, imageBase64, buttons, event, delivered, 0);
+        }
+        public SavedReply(String text, Screen screen, String imageBase64) {
+            this(text, screen, imageBase64, null, null, false);
+        }
         static SavedReply from(BotReply reply) {
             return reply == null ? new SavedReply(null, null, null)
                     : new SavedReply(reply.text(), reply.screen(), reply.imagePng() == null
-                    ? null : Base64.getEncoder().encodeToString(reply.imagePng()));
+                    ? null : Base64.getEncoder().encodeToString(reply.imagePng()),
+                    reply.buttons(), null, false,0,0,reply.additionalImages().stream().map(bytes->Base64.getEncoder().encodeToString(bytes)).toList());
         }
-
+        SavedReply forEvent(VkEvent event) {
+            return new SavedReply(text, screen, imageBase64, buttons, event, false,0,0,additionalImages);
+        }
+        SavedReply withProgress(long id){return new SavedReply(text,screen,imageBase64,buttons,event,delivered,messageId,id,additionalImages);}
+        SavedReply asDelivered() { return asDelivered(messageId); }
+        SavedReply asDelivered(long id) {
+            return new SavedReply(text, screen, imageBase64, buttons, event, true, id,progressMessageId,additionalImages);
+        }
         BotReply toReply() {
             return text == null ? null : new BotReply(text, screen,
-                    imageBase64 == null ? null : Base64.getDecoder().decode(imageBase64));
+                    imageBase64 == null ? null : Base64.getDecoder().decode(imageBase64), buttons,additionalImages==null?java.util.List.of():additionalImages.stream().map(v->Base64.getDecoder().decode(v)).toList());
         }
     }
 }

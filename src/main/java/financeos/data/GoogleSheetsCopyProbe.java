@@ -17,7 +17,7 @@ import java.util.function.Supplier;
 
 /** One-shot write/read/delete check restricted to the owner's test copy. */
 public final class GoogleSheetsCopyProbe {
-    public static final String TEST_COPY_ID = "EXAMPLE_TEST_COPY_SPREADSHEET_ID";
+    public static final String TEST_COPY_ID = "1ZMbKpXVC9qDqxdEvp5vF-lO7NxSa9-F8id7jDadNEiw";
     private static final URI GOOGLE_API = URI.create("https://sheets.googleapis.com");
     private final HttpClient client;
     private final ObjectMapper mapper = new ObjectMapper();

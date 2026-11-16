@@ -26,6 +26,8 @@ public final class VkHistoryClientTest {
                         + "{\"id\":103,\"conversation_message_id\":103,\"from_id\":42,\"peer_id\":2000000001,\"out\":0,\"text\":\"button\",\"payload\":\"{\\\"cmd\\\":\\\"/report\\\"}\"},"
                         + "{\"id\":102,\"conversation_message_id\":102,\"from_id\":77,\"peer_id\":2000000001,\"out\":0,\"text\":\"other user\"},"
                         + "{\"id\":101,\"conversation_message_id\":101,\"from_id\":42,\"peer_id\":2000000001,\"out\":0,\"text\":\"first\"},"
+                        + "{\"is_deleted\":true},"
+                        + "{\"deleted\":1},"
                         + "{\"id\":100,\"conversation_message_id\":100,\"from_id\":42,\"peer_id\":2000000001,\"out\":0,\"text\":\"old\"}]}}";
                 byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(200, bytes.length);
@@ -49,6 +51,8 @@ public final class VkHistoryClientTest {
                     || !"/report".equals(events.get(1).text())) {
                 throw new AssertionError("VK messages are not replayed in owner order");
             }
+            var shared=history.since(2000000001L,java.util.Set.of(42L,77L),100);
+            if(shared.size()!=4||shared.get(1).userId()!=77||shared.get(1).conversationMessageId()!=102)throw new AssertionError("Shared history lost actor order");
             fail.set(true);
             try {
                 history.since(2000000001L, 42, 100);

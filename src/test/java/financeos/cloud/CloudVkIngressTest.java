@@ -45,7 +45,7 @@ public final class CloudVkIngressTest {
             var ingress = new CloudVkIngress(new VkEventParser(99, "local-test-secret"),
                     "confirmation-code", "test-bucket", HttpClient.newHttpClient(),
                     URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
-                    () -> "local-test-token");
+                    () -> "local-test-token",123,2000000001L);
             var confirmation = ingress.apply(request("POST",
                     "{\"type\":\"confirmation\",\"group_id\":99,\"secret\":\"local-test-secret\"}"));
             if (confirmation.statusCode != 200 || !"confirmation-code".equals(confirmation.body)) {
@@ -68,6 +68,14 @@ public final class CloudVkIngressTest {
             if (!stored.contains("/report") || stored.contains("local-test-secret")) {
                 throw new AssertionError("Stored event is invalid or contains the callback secret");
             }
+            int count=objects.size();
+            if(ingress.apply(request("POST",event.replace("\"from_id\":123","\"from_id\":999"))).statusCode!=200||objects.size()!=count)throw new AssertionError("Foreign user entered inbox");
+            if(ingress.apply(request("POST",event.replace("\"peer_id\":123","\"peer_id\":2000000002"))).statusCode!=200||objects.size()!=count)throw new AssertionError("Foreign chat entered inbox");
+            if(ingress.apply(request("POST","null")).statusCode!=400)throw new AssertionError("Malformed callback accepted");
+            var sharedIngress=new CloudVkIngress(new VkEventParser(99,"local-test-secret"),"confirmation-code","test-bucket",HttpClient.newHttpClient(),URI.create("http://127.0.0.1:"+server.getAddress().getPort()),()->"local-test-token",123,2000000001L,java.util.Set.of(123L,456L));
+            String memberEvent=event.replace("\"from_id\":123","\"from_id\":456").replace("\"peer_id\":123","\"peer_id\":2000000001").replace("\"id\":7","\"id\":9,\"conversation_message_id\":9");
+            int beforeMember=objects.size();if(sharedIngress.apply(request("POST",memberEvent)).statusCode!=200||objects.size()!=beforeMember+1)throw new AssertionError("Approved member not accepted");
+            if(sharedIngress.apply(request("POST",memberEvent.replace("2000000001","456"))).statusCode!=200||objects.size()!=beforeMember+1)throw new AssertionError("Member direct message entered shared state");
             fail.set(true);
             String second = event.replace("\"id\":7", "\"id\":8");
             if (ingress.apply(request("POST", second)).statusCode != 503) {

@@ -33,6 +33,8 @@ public final class CloudVkIngress implements Function<CloudVkIngress.Request, Cl
     }
 
     private final VkEventParser parser;
+    private final long ownerId, chatPeerId;
+    private final java.util.Set<Long> allowedUsers;
     private final String confirmationCode;
     private final String bucket;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -45,12 +47,18 @@ public final class CloudVkIngress implements Function<CloudVkIngress.Request, Cl
                         required("FINANCEOS_VK_CALLBACK_SECRET")),
                 required("FINANCEOS_VK_CONFIRMATION_CODE"), required("FINANCEOS_STATE_BUCKET"),
                 HttpClient.newHttpClient(), java.net.URI.create("https://storage.yandexcloud.net"),
-                new MetadataIamToken());
+                new MetadataIamToken(), Long.parseLong(required("FINANCEOS_VK_USER_ID")),
+                Long.parseLong(required("FINANCEOS_VK_CHAT_PEER_ID")));
     }
 
     CloudVkIngress(VkEventParser parser, String confirmationCode, String bucket,
                    HttpClient client, java.net.URI storageEndpoint,
-                   java.util.function.Supplier<String> token) {
+                   java.util.function.Supplier<String> token, long ownerId, long chatPeerId) {
+        this(parser,confirmationCode,bucket,client,storageEndpoint,token,ownerId,chatPeerId,financeos.vk.ChatAccess.configured(ownerId));
+    }
+    CloudVkIngress(VkEventParser parser,String confirmationCode,String bucket,HttpClient client,java.net.URI storageEndpoint,java.util.function.Supplier<String> token,long ownerId,long chatPeerId,java.util.Set<Long> users){
+        if(ownerId<=0 || chatPeerId<2_000_000_000L)throw new IllegalArgumentException("Invalid owner scope");
+        this.ownerId=ownerId;this.chatPeerId=chatPeerId;this.allowedUsers=java.util.Set.copyOf(users);
         this.parser = parser;
         this.confirmationCode = confirmationCode;
         this.bucket = bucket;
@@ -89,6 +97,7 @@ public final class CloudVkIngress implements Function<CloudVkIngress.Request, Cl
         if (!"message_new".equals(event.type()) && !"message_event".equals(event.type())) {
             return new Response(200, "ok");
         }
+        if(!financeos.vk.ChatAccess.eventAllowed(event.userId(),event.peerId(),ownerId,chatPeerId,allowedUsers)||!financeos.vk.ChatAccess.afterActivation(event,ownerId,financeos.vk.ChatAccess.memberStart()))return new Response(200,"ok");
         String key = "inbox/" + eventId(event) + ".json";
         try {
             byte[] bytes = mapper.writeValueAsBytes(event);

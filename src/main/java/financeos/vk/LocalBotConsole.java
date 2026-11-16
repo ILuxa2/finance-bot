@@ -79,12 +79,12 @@ public final class LocalBotConsole {
 
     private static void print(BotReply reply) {
         System.out.println("\n" + reply.text());
-        if (reply.imagePng() != null) {
+        for (var image : reply.images()) {
             try {
                 Path directory = Path.of(System.getProperty("user.dir"), ".local-output", "charts");
                 Files.createDirectories(directory);
                 Path file = directory.resolve("chart-" + java.util.UUID.randomUUID() + ".png");
-                Files.write(file, reply.imagePng());
+                Files.write(file, image);
                 System.out.println("Диаграмма сохранена: " + file.toAbsolutePath());
             } catch (java.io.IOException error) {
                 throw new java.io.UncheckedIOException("Не удалось сохранить диаграмму", error);

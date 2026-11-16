@@ -285,7 +285,11 @@ public final class LocalVkRunner {
                     }
                     var reply = engine.handle(event);
                     if (reply.isPresent()) {
-                        sender.send(event, reply.get());
+                        var result = reply.get();
+                        if (result.screen() == Screen.CHAT_CLEAR_RESULT || "/chat_auto_confirm".equals(event.text())) {
+                            result = new BotReply("ℹ️ Удаление сообщений выполняет облачный обработчик. Локальный запуск не очищает историю VK.", Screen.CHAT_CLEAN);
+                        }
+                        sender.send(event, result);
                         log("Ответ отправлен в VK.");
                     } else if (event.userId() == vkUserId && event.peerId() == vkUserId) {
                         log("Событие VK уже обработано или не содержит команды.");

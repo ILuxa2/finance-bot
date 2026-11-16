@@ -10,18 +10,44 @@ import java.util.Map;
 public final class VkKeyboardFactory {
     private final ObjectMapper mapper = new ObjectMapper();
 
+    private String payload(String command) {
+        try { return mapper.writeValueAsString(Map.of("cmd", command)); }
+        catch (JsonProcessingException e) { throw new IllegalStateException(e); }
+    }
+
     public String keyboard(Screen screen) {
+        return keyboard(MenuCatalog.buttons(screen));
+    }
+
+    public String keyboard(List<MenuButton> buttons) {
+        if (buttons.size() > 10) throw new IllegalArgumentException("Inline keyboard exceeds 10 buttons");
         List<List<Map<String, Object>>> rows = new ArrayList<>();
-        List<Map<String, Object>> current = new ArrayList<>(2);
-        for (MenuButton button : MenuCatalog.buttons(screen)) {
-            current.add(Map.of("action", Map.of("type", "text", "label", button.label(),
-                    "payload", "{\"cmd\":\"" + button.command() + "\"}"), "color", "primary"));
-            if (current.size() == 2) {
-                rows.add(List.copyOf(current));
-                current.clear();
+        Map<String, Object> pendingShort = null;
+        boolean compactChoices = buttons.stream().filter(b -> b.command().startsWith("/choose/")).count() > 3;
+        boolean choiceBlock = false;
+        for (MenuButton button : buttons) {
+            boolean isChoice = button.command().startsWith("/choose/");
+            if (compactChoices && choiceBlock && !isChoice && pendingShort != null) {
+                rows.add(List.of(pendingShort));
+                pendingShort = null;
+            }
+            choiceBlock = isChoice;
+            int length = button.label().codePointCount(0, button.label().length());
+            if (length > 40) throw new IllegalArgumentException("VK button label exceeds 40 characters");
+            Map<String, Object> rendered = Map.of("action", Map.of("type", "text", "label", button.label(),
+                    "payload", payload(button.command())), "color", "primary");
+            if (length > 12 || (isChoice && !compactChoices)) {
+                // Flush before a wide button so visual order matches the numbered list.
+                if(pendingShort!=null){rows.add(List.of(pendingShort));pendingShort=null;}
+                rows.add(List.of(rendered));
+            } else if (pendingShort == null) {
+                pendingShort = rendered;
+            } else {
+                rows.add(List.of(pendingShort, rendered));
+                pendingShort = null;
             }
         }
-        if (!current.isEmpty()) rows.add(List.copyOf(current));
+        if (pendingShort != null) rows.add(List.of(pendingShort));
         if (rows.size() > 6) throw new IllegalStateException("VK inline menu has too many rows");
         try {
             return mapper.writeValueAsString(Map.of("inline", true, "one_time", false,

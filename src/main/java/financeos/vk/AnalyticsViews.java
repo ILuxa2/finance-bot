@@ -40,8 +40,8 @@ final class AnalyticsViews {
         }
         if (active == 0) return "🕊 Активных долгов нет. Запланированных платежей по ним нет.";
         return "🕊 Долговая свобода\nАктивных долгов: " + active
-                + "\nОстаток долга: " + money(total) + " ₽"
-                + "\nБлижайшая суммарная месячная нагрузка: " + money(monthly) + " ₽"
+                + "\nОстаток долга · " + money(total) + " ₽"
+                + "\nБлижайшая суммарная месячная нагрузка · " + money(monthly) + " ₽"
                 + "\nРасчётная дата последнего платежа: " + finalDate
                 + "\nРасчёт без процентов и новых займов; суммы платежей взяты из карточек долгов.";
     }
@@ -54,13 +54,13 @@ final class AnalyticsViews {
                 ? "Неоплаченная часть плана превышает текущий баланс на " + money(report.freeMoney().abs()) + " ₽."
                 : "После оставшихся плановых расходов свободно " + money(report.freeMoney()) + " ₽.";
         return "💚 Финансовое состояние на " + now.toLocalDate()
-                + "\nБаланс: " + money(report.actualBalance()) + " ₽"
-                + "\nПлан расходов: " + money(report.plannedExpenses()) + " ₽"
-                + "\nОсталось оплатить по плану: " + money(report.remainingPlans()) + " ₽"
+                + "\nБаланс · " + money(report.actualBalance()) + " ₽"
+                + "\nПлан расходов · " + money(report.plannedExpenses()) + " ₽"
+                + "\nОсталось оплатить по плану · " + money(report.remainingPlans()) + " ₽"
                 + "\n" + budget
-                + "\nНезапланированные расходы за месяц: "
+                + "\nНезапланированные расходы за месяц · "
                 + money(report.unplannedThisMonth()) + " ₽ (уже учтены в балансе)"
-                + "\nАктивный остаток долгов: " + money(debt) + " ₽";
+                + "\nАктивный остаток долгов · " + money(debt) + " ₽";
     }
 
     static String insights(LegacyUserData data, OffsetDateTime now) {
@@ -82,12 +82,12 @@ final class AnalyticsViews {
         String top = byCategory.entrySet().stream()
                 .max(Comparator.<Map.Entry<String, BigDecimal>, BigDecimal>comparing(Map.Entry::getValue)
                         .thenComparing(Map.Entry::getKey))
-                .map(e -> e.getKey() + " — " + money(e.getValue()) + " ₽")
+                .map(e -> e.getKey() + " · " + money(e.getValue()) + " ₽")
                 .orElse("нет расходов");
         return "🧠 Итоги за " + month
-                + "\nДоход: " + money(income) + " ₽"
-                + "\nРасход: " + money(expense) + " ₽"
-                + "\nРазница доходов и расходов: " + money(income.subtract(expense)) + " ₽"
+                + "\nДоход · " + money(income) + " ₽"
+                + "\nРасход · " + money(expense) + " ₽"
+                + "\nРазница доходов и расходов · " + money(income.subtract(expense)) + " ₽"
                 + "\nКрупнейшая статья расходов: " + top
                 + "\nЭто сводка по записанным операциям, без прогноза будущих поступлений.";
     }

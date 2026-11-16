@@ -8,7 +8,7 @@ public final class GoogleSheetsCopyProbeTest {
         boolean refusedOriginal = false;
         try {
             new GoogleSheetsCopyProbe(URI.create("https://sheets.googleapis.com"),
-                    "EXAMPLE_ORIGINAL_SPREADSHEET_ID", () -> "token");
+                    "1DLgu1q2tKnAf2hMX5S9-sycgT7t4mWC45RDMgc6EKJo", () -> "token");
         } catch (IllegalArgumentException expected) {
             refusedOriginal = true;
         }

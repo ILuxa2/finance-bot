@@ -33,21 +33,66 @@ public final class VkMessagesClient {
                 || reply.text().length() > 9000) {
             throw new IllegalArgumentException("Invalid VK message");
         }
-        String attachment = reply.imagePng() == null ? ""
-                : photos.upload(event.peerId(), reply.imagePng());
+        var images=reply.images();var attachments=new java.util.ArrayList<String>();
+        try(var uploads=java.util.concurrent.Executors.newFixedThreadPool(3)){
+            var pending=images.stream().map(image->uploads.submit(()->photos.upload(event.peerId(),image))).toList();
+            for(var upload:pending)try{attachments.add(upload.get());}
+            catch(java.util.concurrent.ExecutionException failure){for(var task:pending)task.cancel(true);var cause=failure.getCause();if(cause instanceof IOException io)throw io;if(cause instanceof InterruptedException interrupted){Thread.currentThread().interrupt();throw interrupted;}throw new IOException("VK chart upload failed",cause);}
+        }
+        long first=0;
+        int batches=Math.max(1,(attachments.size()+9)/10);
+        for(int batch=0;batch<batches;batch++){
+            String attachment=String.join(",",attachments.subList(Math.min(batch*10,attachments.size()),Math.min(batch*10+10,attachments.size())));
+            var partEvent=batch==0?event:new VkEvent(event.type(),event.groupId(),event.userId(),event.peerId(),event.eventId()+":charts:"+batch,"",event.conversationMessageId());
+            long sent=sendPart(partEvent,batch==0?reply:new BotReply("Диаграммы расходов · продолжение",reply.screen(),null,java.util.List.of()),attachment);
+            if(batch==0)first=sent;
+        }
+        return first;
+    }
+    private long sendPart(VkEvent event,BotReply reply,String attachment)throws IOException,InterruptedException {
         String body = form(event, reply.text(), attachment);
+        if(reply.buttons()!=null && reply.buttons().isEmpty())return sendForm(body);
+        String keyboard;
         try {
-            return sendForm(body + "&" + field("keyboard", keyboards.keyboard(reply.screen())));
+            keyboard = reply.buttons() == null ? keyboards.keyboard(reply.screen()) : keyboards.keyboard(reply.buttons());
+        } catch (IllegalArgumentException | IllegalStateException obsoleteLayout) {
+            // A queued reply may still contain the former five-item keyboard.
+            // Deliver its saved result with the current section controls instead of retrying forever.
+            keyboard = keyboards.keyboard(reply.screen());
+            System.out.println("Сохранённая клавиатура обновлена до меню раздела.");
+        }
+        try {
+            return sendForm(body + "&" + field("keyboard", keyboard));
         } catch (IOException invalidKeyboard) {
             if (!"VK API error 911".equals(invalidKeyboard.getMessage())) throw invalidKeyboard;
             System.out.println("VK отклонил клавиатуру. Повторяю отправку текста без кнопок.");
-            String commands = MenuCatalog.buttons(reply.screen()).stream()
-                    .map(button -> button.label() + " " + button.command())
-                    .collect(java.util.stream.Collectors.joining(" | "));
-            String fallbackText = reply.text() + "\n\nКоманды: " + commands;
+            String fallbackText = reply.text() + "\n\nVK временно не показал кнопки. Откройте меню через /start."
+                    + " Справка по дополнительным командам доступна через /help.";
             if (fallbackText.length() > 9000) fallbackText = reply.text();
             return sendForm(form(event, fallbackText, attachment));
         }
+    }
+
+    /** Read-only pagination can reuse its last delivered list message. Failed edits safely fall back to send. */
+    public long edit(VkEvent event, BotReply reply, long messageId) throws IOException, InterruptedException {
+        if (messageId <= 0 || reply.imagePng() != null) throw new IllegalArgumentException("Invalid editable reply");
+        String keyboard = reply.buttons() == null ? keyboards.keyboard(reply.screen()) : keyboards.keyboard(reply.buttons());
+        String body = field("peer_id", Long.toString(event.peerId())) + "&" + field("message_id", Long.toString(messageId))
+                + "&" + field("message", reply.text()) + (reply.buttons()!=null&&reply.buttons().isEmpty()?"":"&"+field("keyboard",keyboard))
+                + "&" + field("access_token", token) + "&" + field("v", "5.199");
+        var request = HttpRequest.newBuilder(endpoint.resolve("messages.edit")).timeout(Duration.ofSeconds(8))
+                .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
+        var response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() != 200) throw new IOException("VK edit HTTP failure");
+        var json = mapper.readTree(response.body());
+        if (json.has("error") || json.path("response").asInt() != 1) throw new IOException("VK edit rejected");
+        return messageId;
+    }
+
+    /** A status message uses a separate stable ID and never replaces the final reply. */
+    public long notice(VkEvent event, String text) throws IOException, InterruptedException {
+        return sendForm(form(event, text, ""));
     }
 
     private String form(VkEvent event, String message, String attachment) {

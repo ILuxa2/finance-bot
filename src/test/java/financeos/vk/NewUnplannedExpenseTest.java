@@ -1,0 +1,24 @@
+package financeos.vk;
+import financeos.core.*;import financeos.data.*;import java.time.*;import java.util.*;import java.nio.file.*;
+public final class NewUnplannedExpenseTest {
+ static final Clock C=Clock.fixed(Instant.parse("2026-11-15T09:00:00Z"),ZoneId.of("Europe/Moscow"));static long id;
+ static LegacyUserData base(boolean planned){return new LegacyUserData(Money.of("10000"),OffsetDateTime.now(C).minusDays(1),List.of(),planned?List.of(new BudgetPlan(YearMonth.of(2026,11),"Продукты",Money.of("2000"))):List.of());}
+ static LocalBotEngine fresh(boolean planned){var e=new LocalBotEngine(42,base(planned),C);send(e,"/defaults_setup");send(e,"/defaults_confirm");return e;}
+ static BotReply send(LocalBotEngine e,String text){var r=e.handle(new VkEvent("message_new",99,42,42,"unplanned-"+(++id),text)).orElseThrow();new VkKeyboardFactory().keyboard(r.buttons()==null?MenuCatalog.buttons(r.screen()):r.buttons());return r;}
+ static void ok(boolean c,String why){if(!c)throw new AssertionError(why);}
+ static String action(BotReply r,String prefix){return r.buttons().stream().filter(b->b.command().startsWith(prefix+"/")).findFirst().orElseThrow().command();}
+ static BotReply draft(LocalBotEngine e,String category){send(e,"/expense");send(e,"Питание");send(e,category);return send(e,"500, незапланированная покупка");}
+ static LocalBotEngine reload(LocalBotEngine e,boolean planned)throws Exception{var path=Files.createTempFile("unplanned-",".json");try{var f=new LocalStateFile(path,42,base(planned));f.save(e.exportState());var n=new LocalBotEngine(42,base(planned),C);n.restoreState(f.load().orElseThrow());return n;}finally{Files.delete(path);}}
+ public static void main(String[] args)throws Exception{
+  for(boolean planned:List.of(false,true)){
+   var e=fresh(planned);var before=e.exportState();var reply=draft(e,"QA Без плана");ok(reply.buttons().stream().anyMatch(b->b.label().equals("Не планировать")),"Missing opt out");String command=action(reply,"/new_plan_unplanned");ok(e.exportState().entries().isEmpty(),"Saved before selection");e=reload(e,planned);reply=send(e,command);ok(reply.text().contains("Незапланированный расход сохранён"),reply.text());var state=e.exportState();ok(state.entries().size()==1&&!state.entries().getFirst().entry().planned(),"Expense missing/planned");ok(state.plans().equals(before.plans())&&state.planEdits().equals(before.planEdits()),"Opt out changed plan");ok(state.categorySections().section("QA Без плана").equals("Питание"),"Category lost section");
+   String report=send(e,"/report").text();ok(report.contains("Фактический баланс · 9500.00"),"Wrong actual balance");ok(report.contains("Свободные деньги · "+(planned?"7500.00":"9500.00")),"Unplanned expense subtracted twice");ok(report.contains("Незапланированные расходы за месяц · 500.00"),"Missing unplanned total");ok(report.contains("Планы за месяц · "+(planned?"2000.00":"0.00")),"Plan changed in report");ok(report.contains("Осталось оплатить по плану · "+(planned?"2000.00":"0.00")),"Remaining plan changed");
+   send(e,command);ok(e.exportState().entries().size()==1,"Duplicate confirmation");e=reload(e,planned);send(e,"/undo");ok(e.exportState().entries().isEmpty()&&e.exportState().plans().equals(before.plans())&&e.exportState().planEdits().equals(before.planEdits())&&e.exportState().categorySections().equals(before.categorySections()),"Undo incomplete");
+  }
+  var e=fresh(false);var r=draft(e,"QA Без остатка");r=send(e,action(r,"/new_plan_keep"));ok(e.exportState().entries().isEmpty()&&r.text().contains("Не планировать"),"Insufficient plan forced planning");send(e,action(r,"/new_plan_unplanned"));ok(e.exportState().entries().size()==1&&e.exportState().plans().isEmpty(),"Cannot opt out after insufficient reserve");
+  e=fresh(true);r=draft(e,"QA После выбора");r=send(e,action(r,"/new_plan_custom"));send(e,action(r,"/new_plan_unplanned"));ok(e.exportState().entries().size()==1&&e.exportState().plans().isEmpty(),"Custom amount step cannot opt out");
+  e=fresh(true);r=draft(e,"QA Старый");String old=action(r,"/new_plan_unplanned");send(e,"/start");draft(e,"QA Новый");send(e,old);ok(e.exportState().entries().isEmpty(),"Old opt-out saved new draft");send(e,"/new_plan_unplanned");ok(e.exportState().entries().isEmpty(),"Unbound command accepted");
+  e=fresh(true);send(e,"/section_pick");send(e,"Питание");send(e,"/category_new");send(e,"QA Настройки");send(e,"/section_confirm");send(e,"-500, быстро");send(e,"/quick_all");r=send(e,"QA Настройки");send(e,action(r,"/new_plan_unplanned"));ok(e.exportState().entries().size()==1&&e.exportState().plans().isEmpty(),"Quick settings category cannot opt out");
+  System.out.println("New unplanned expense: explicit opt-out, no plan changes, balance/free/unplanned totals, zero reserve, restart/undo, quick flow and stale buttons passed.");
+ }
+}

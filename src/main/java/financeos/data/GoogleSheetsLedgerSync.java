@@ -23,7 +23,7 @@ public final class GoogleSheetsLedgerSync {
         var temp=java.nio.file.Files.createTempFile("financeos-sync-state-",".json");
         try {
             java.nio.file.Files.write(temp,state);
-            var local=new financeos.vk.LocalStateFile(temp,100000001L,new LegacyDataMapper().user(sheets,user)).load().orElseThrow();
+            var local=new financeos.vk.LocalStateFile(temp,564689957L,new LegacyDataMapper().user(sheets,user)).load().orElseThrow();
             var target=new LegacySheetProjection().project(sheets,user,local,java.time.Instant.now().toString());
             var token=new GoogleServiceAccountToken(java.nio.file.Path.of(args[2]),GoogleServiceAccountToken.Scope.READ_WRITE);
             String hash=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(state));
@@ -39,16 +39,16 @@ public final class GoogleSheetsLedgerSync {
             new GoogleSheetsLedgerSync(URI.create("https://sheets.googleapis.com"),args[3],token).sync(sheets,target,hash);
             if(args.length>4 && "probe".equals(args[4])) {
                 GoogleSheetsCopyProbe.requireTestCopy(args[3]);
-                var engine=new financeos.vk.LocalBotEngine(100000001L,new LegacyDataMapper().user(sheets,user),java.time.Clock.system(java.time.ZoneId.of("Europe/Moscow")));
+                var engine=new financeos.vk.LocalBotEngine(564689957L,new LegacyDataMapper().user(sheets,user),java.time.Clock.system(java.time.ZoneId.of("Europe/Moscow")));
                 engine.restoreState(local);
                 int seq=0;
                 for(String command:List.of("/expense","Проверка синхронизации","1, временная проверка"))
-                    engine.handle(new financeos.vk.VkEvent("message_new",100000002L,100000001L,100000001L,"sync-probe-"+(++seq),command));
+                    engine.handle(new financeos.vk.VkEvent("message_new",242685493L,564689957L,564689957L,"sync-probe-"+(++seq),command));
                 var probe=new LegacySheetProjection().project(sheets,user,engine.exportState(),java.time.Instant.now().toString());
                 var writer=new GoogleSheetsLedgerSync(URI.create("https://sheets.googleapis.com"),args[3],token);
                 writer.sync(sheets,probe,"probe-"+hash);
                 writer.sync(sheets,probe,"probe-"+hash);
-                engine.handle(new financeos.vk.VkEvent("message_new",100000002L,100000001L,100000001L,"sync-probe-undo","/undo"));
+                engine.handle(new financeos.vk.VkEvent("message_new",242685493L,564689957L,564689957L,"sync-probe-undo","/undo"));
                 var undone=new LegacySheetProjection().project(sheets,user,engine.exportState(),java.time.Instant.now().toString());
                 writer.sync(sheets,undone,hash);
                 System.out.println("Expense, duplicate retry and undo readback passed on test copy.");

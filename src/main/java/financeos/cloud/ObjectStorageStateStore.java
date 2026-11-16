@@ -28,6 +28,7 @@ public final class ObjectStorageStateStore {
     private final HttpClient client;
     private final URI objectUri;
     private final Supplier<String> iamToken;
+    private final CloudMemoryCache cache;
 
     public ObjectStorageStateStore(String bucket, String key, Supplier<String> iamToken) {
         this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build(),
@@ -36,6 +37,11 @@ public final class ObjectStorageStateStore {
 
     public ObjectStorageStateStore(HttpClient client, URI endpoint, String bucket, String key,
                                    Supplier<String> iamToken) {
+        this(client, endpoint, bucket, key, iamToken, null);
+    }
+
+    public ObjectStorageStateStore(HttpClient client, URI endpoint, String bucket, String key,
+                                   Supplier<String> iamToken, CloudMemoryCache cache) {
         if (bucket == null || !bucket.matches("[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]")) {
             throw new IllegalArgumentException("Invalid Object Storage bucket");
         }
@@ -53,18 +59,31 @@ public final class ObjectStorageStateStore {
         }
         this.objectUri = endpoint.resolve("/" + bucket + "/" + key);
         this.iamToken = Objects.requireNonNull(iamToken);
+        this.cache = cache;
     }
 
     public Optional<Snapshot> load() throws IOException, InterruptedException {
-        var request = authorized(HttpRequest.newBuilder(objectUri)).GET().build();
-        HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
-        if (response.statusCode() == 404) return Optional.empty();
+        var cached = cache == null ? Optional.<Snapshot>empty() : cache.snapshot(objectUri);
+        var builder = authorized(HttpRequest.newBuilder(objectUri));
+        cached.ifPresent(value -> builder.header("If-None-Match", value.etag()));
+        HttpResponse<byte[]> response = client.send(builder.GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+        if (response.statusCode() == 304) {
+            if (cached.isEmpty()) throw new IOException("Object Storage returned an unrequested cache response");
+            cache.validated();
+            return cached;
+        }
+        if (response.statusCode() == 404) {
+            if (cache != null) cache.invalidate(objectUri);
+            return Optional.empty();
+        }
         if (response.statusCode() != 200) {
             throw new IOException("Object Storage read failed with HTTP " + response.statusCode());
         }
         String etag = response.headers().firstValue("ETag")
                 .orElseThrow(() -> new IOException("Object Storage returned no ETag"));
-        return Optional.of(new Snapshot(response.body(), etag));
+        var snapshot = new Snapshot(response.body(), etag);
+        if (cache != null) cache.remember(objectUri, snapshot);
+        return Optional.of(snapshot);
     }
 
     /** Returns false on a concurrent write; the caller must reload and recompute. */
@@ -80,12 +99,17 @@ public final class ObjectStorageStateStore {
             }
             builder.header("If-Match", expectedEtag);
         }
+        // An unsuccessful or ambiguous write must not publish a speculative cached value.
+        if (cache != null) cache.invalidate(objectUri);
         var response = client.send(builder.PUT(HttpRequest.BodyPublishers.ofByteArray(bytes)).build(),
                 HttpResponse.BodyHandlers.discarding());
         if (response.statusCode() == 412 || response.statusCode() == 409) return false;
         if (response.statusCode() != 200 && response.statusCode() != 201) {
             throw new IOException("Object Storage write failed with HTTP " + response.statusCode());
         }
+        if (cache != null) response.headers().firstValue("ETag")
+                .filter(etag -> etag.matches("\"[A-Za-z0-9-]+\""))
+                .ifPresent(etag -> cache.remember(objectUri, new Snapshot(bytes, etag)));
         return true;
     }
 

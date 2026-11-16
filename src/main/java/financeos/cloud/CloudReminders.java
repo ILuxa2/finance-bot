@@ -47,6 +47,7 @@ public final class CloudReminders implements Function<CloudReminders.TimerReques
     public static final class TimerRequest { public Object messages; }
     @Override public String apply(TimerRequest ignored) {
         try {
+            new CloudVkProcessor().recoverConversation();
             for (int attempt = 0; attempt < 6; attempt++) {
                 var current = store(stateKey).load()
                         .orElseThrow(() -> new IOException("Cloud state is not initialized"));
@@ -62,6 +63,8 @@ public final class CloudReminders implements Function<CloudReminders.TimerReques
                 if (attempt == 5) throw new IOException("Could not reserve reminders");
             }
             deliverPending();
+            new CloudVkProcessor().runAutomaticCleanup();
+            new CloudVkProcessor().maintainStorage();
             return "ok";
         } catch (Exception failure) {
             if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
@@ -107,8 +110,8 @@ public final class CloudReminders implements Function<CloudReminders.TimerReques
                 String text = "⏳ Подтвердите регулярную операцию за " + item.date()
                         + "\n" + rule.category() + ": " + rule.amount().setScale(2).toPlainString()
                         + " ₽\nКод: " + item.code()
-                        + "\nОткройте /regular_confirm и отправьте код."
-                        + " Можно пропустить через /regular_skip.";
+                        + "\nНажмите «Подтвердить» и выберите операцию."
+                        + " Можно нажать «Пропуск» и выбрать операцию.";
                 result.put(key, CloudVkProcessor.SavedReply.from(
                         new BotReply(text, Screen.RECURRING)));
             }
@@ -143,7 +146,7 @@ public final class CloudReminders implements Function<CloudReminders.TimerReques
         for (var entry : envelope.replies().entrySet()) {
             String key = entry.getKey();
             if (!key.startsWith("scheduled:") || envelope.notified().contains(key)) continue;
-            if (!members.onlyOwnerAndCommunity(chatPeerId, ownerId)) {
+            if (members.authorizedMembers(chatPeerId,ownerId,financeos.vk.ChatAccess.configured(ownerId)).isEmpty()) {
                 throw new IOException("VK private chat membership is not confirmed");
             }
             String eventId = key.substring("scheduled:".length());

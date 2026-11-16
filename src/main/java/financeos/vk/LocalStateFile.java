@@ -51,7 +51,7 @@ public final class LocalStateFile {
         try {
             JsonNode root = mapper.readTree(Files.readString(path, StandardCharsets.UTF_8));
             int version = root.path("version").asInt();
-            if ((version < 1 || version > 4)
+            if ((version < 1 || version > 13)
                     || root.path("vkUserId").asLong() != vkUserId
                     || !baseFingerprint.equals(root.path("baseFingerprint").asText())) {
                 throw new IOException("Локальная копия относится к другим исходным данным."
@@ -139,7 +139,7 @@ public final class LocalStateFile {
             }
             return Optional.of(new BotLocalState(entries, plans, debts, goals, limits,
                     root.path("nextEntryId").asLong(), seen, recurring,
-                    pending, pendingCategory, navigation, undoHistory));
+                    pending, pendingCategory, navigation, undoHistory, readLinks(root), readHistory(root), readDeleted(root), root.path("chartTheme").asText("dark"), ChatCleanupSettings.read(root), readPlanEdits(root), readSections(root)));
         } catch (RuntimeException invalid) {
             throw new IOException("Локальная копия повреждена; исходная таблица не изменена", invalid);
         }
@@ -147,7 +147,11 @@ public final class LocalStateFile {
 
     public void save(BotLocalState state) throws IOException {
         ObjectNode root = mapper.createObjectNode();
-        root.put("version", 4);
+        root.put("version", 13);
+        root.set("categorySections", mapper.valueToTree(state.categorySections()));
+        writePlanEdits(root, state.planEdits());
+        state.chatCleanup().write(root);
+        root.put("chartTheme", state.chartTheme());
         root.put("vkUserId", vkUserId);
         root.put("baseFingerprint", baseFingerprint);
         root.put("nextEntryId", state.nextEntryId());
@@ -214,6 +218,18 @@ public final class LocalStateFile {
         }
         var decisions = root.putObject("decisions");
         state.recurring().decisions().forEach(decisions::put);
+        writeLinks(root, state.operationLinks());
+        var deleted = root.putArray("deletedIds");
+        state.deletedIds().stream().sorted().forEach(deleted::add);
+        root.put("historyFrom", state.history().from() == null ? "" : state.history().from().toString());
+        root.put("historyThrough", state.history().through() == null ? "" : state.history().through().toString());
+        root.put("historyPage", state.history().page());
+        root.put("historyCategory", state.history().category());
+        root.put("historyKind", state.history().kind());
+        root.put("historyQuery", state.history().query());
+        root.put("historyAmount", state.history().amount());
+        root.put("editorPage", state.history().editorPage());
+        root.put("editorContext", state.history().editorContext());
         var undoHistory = root.putArray("undoHistory");
         for (var snapshot : state.undoHistory()) writeUndo(undoHistory.addObject(), snapshot);
         Path parent = path.getParent();
@@ -234,6 +250,11 @@ public final class LocalStateFile {
     }
 
     private void writeUndo(ObjectNode root, BotUndoState state) {
+        root.set("categorySections", mapper.valueToTree(state.categorySections()));
+        writePlanEdits(root, state.planEdits());
+        writeLinks(root, state.operationLinks());
+        var deleted = root.putArray("deletedIds");
+        state.deletedIds().stream().sorted().forEach(deleted::add);
         var entries = root.putArray("entries");
         for (var timed : state.entries()) {
             var entry = timed.entry();
@@ -345,7 +366,61 @@ public final class LocalStateFile {
         root.path("decisions").fields().forEachRemaining(field ->
                 decisions.put(field.getKey(), field.getValue().asBoolean()));
         return new BotUndoState(entries, plans, debts, goals, limits,
-                new RecurringBook.State(rules, decisions, root.path("nextRuleId").asLong()));
+                new RecurringBook.State(rules, decisions, root.path("nextRuleId").asLong()), readLinks(root), readDeleted(root), readPlanEdits(root), readSections(root));
+    }
+
+    private financeos.core.CategorySections readSections(JsonNode root) throws IOException {
+        return root.has("categorySections") ? mapper.treeToValue(root.path("categorySections"),financeos.core.CategorySections.class) : financeos.core.CategorySections.empty();
+    }
+    private void writePlanEdits(ObjectNode root,List<financeos.core.PlanEdit> edits) {
+        var array=root.putArray("planEdits");for(var edit:edits){var item=array.addObject();item.put("month",edit.month().toString());item.put("source",edit.source());item.put("category",edit.category());item.put("amount",edit.amount().toPlainString());item.put("canonical",edit.canonical());}
+    }
+    private List<financeos.core.PlanEdit> readPlanEdits(JsonNode root) throws IOException {
+        if(!root.has("planEdits"))return List.of();requireArray(root,"planEdits");var edits=new ArrayList<financeos.core.PlanEdit>();
+        for(var item:root.path("planEdits"))edits.add(new financeos.core.PlanEdit(YearMonth.parse(text(item,"month")),text(item,"source"),text(item,"category"),Money.of(text(item,"amount")),item.path("canonical").asBoolean()));
+        return List.copyOf(edits);
+    }
+
+    private java.util.Set<String> readDeleted(JsonNode root) throws IOException {
+        if (!root.has("deletedIds")) return java.util.Set.of();
+        requireArray(root, "deletedIds");
+        var result = new java.util.HashSet<String>();
+        for (var item : root.path("deletedIds")) {
+            if (!item.isTextual() || item.asText().isBlank()) throw new IOException("Invalid deleted operation ID");
+            result.add(item.asText());
+        }
+        return java.util.Set.copyOf(result);
+    }
+
+    private void writeLinks(ObjectNode root, Map<String, financeos.core.OperationLink> links) {
+        var object = root.putObject("operationLinks");
+        links.forEach((id, link) -> {
+            var value = object.putObject(id);
+            value.put("type", link.type().name());
+            value.put("target", link.target());
+        });
+    }
+
+    private Map<String, financeos.core.OperationLink> readLinks(JsonNode root) throws IOException {
+        if (!root.has("operationLinks")) return Map.of();
+        if (!root.path("operationLinks").isObject()) throw new IOException("Invalid operation links");
+        var links = new HashMap<String, financeos.core.OperationLink>();
+        var fields = root.path("operationLinks").fields();
+        while (fields.hasNext()) {
+            var field = fields.next();
+            links.put(field.getKey(), new financeos.core.OperationLink(
+                    financeos.core.OperationLink.Type.valueOf(text(field.getValue(), "type")), text(field.getValue(), "target")));
+        }
+        return links;
+    }
+
+    private HistoryCursor readHistory(JsonNode root) {
+        String from = root.path("historyFrom").asText("");
+        String through = root.path("historyThrough").asText("");
+        return new HistoryCursor(from.isBlank() ? null : LocalDate.parse(from),
+                through.isBlank() ? null : LocalDate.parse(through), root.path("historyPage").asInt(0), root.path("historyCategory").asText(""),
+                root.path("historyQuery").asText(""), root.path("historyAmount").asText(""),
+                root.path("editorPage").asInt(0), root.path("editorContext").asBoolean(false),root.path("historyKind").asText(""));
     }
 
     private void requireArray(JsonNode root, String name) throws IOException {
