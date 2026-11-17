@@ -6,7 +6,7 @@ class DeployGuards(unittest.TestCase):
   meta=self.fixture();before=copy.deepcopy(meta);body=payload("processor",meta,"zip","0.18.15","a"*40)
   self.assertEqual(before,meta)
   for key in ("environment","secrets","resources","executionTimeout","concurrency","logOptions"):self.assertEqual(meta[key],body[key])
-  self.assertNotIn("id",body);self.assertNotIn("tags",body);self.assertEqual(body["tag"],["v0-18-15-"+"a"*10])
+  self.assertNotIn("id",body);self.assertNotIn("tags",body);self.assertNotIn("tag",body);self.assertEqual(body["description"],"FinanceOS v0.18.15, git "+"a"*40)
  def test_wrong_function_or_runtime_refused(self):
   for key,value in (("functionId","foreign"),("runtime","python"),("entrypoint","other"),("serviceAccountId","other")):
    meta=self.fixture();meta[key]=value
@@ -16,6 +16,11 @@ class DeployGuards(unittest.TestCase):
   category=rejection_category(raw)
   self.assertEqual(category,"request-size")
   self.assertNotIn("private-secret-value",str(CloudRequestRejected(429,category)))
+ def test_full_tag_quota_does_not_require_new_tag(self):
+  meta=self.fixture();meta["tags"]=["$latest"]+["v-old-"+str(i) for i in range(10)]
+  body=payload("processor",meta,"zip","0.18.16","a"*40)
+  self.assertNotIn("tag",body);self.assertNotIn("tags",body)
+  self.assertEqual(rejection_category(b'{"message":"Function tags quota exceeded"}'),"tag-quota")
  def test_rate_and_version_quota_are_distinct(self):
   self.assertEqual(rejection_category(b'{"message":"Rate limit exceeded"}'),"rate-limit")
   self.assertEqual(rejection_category(b'{"message":"Total size of all versions exceeds limit"}'),"version-storage-quota")

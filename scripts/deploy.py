@@ -51,7 +51,7 @@ def payload(component,meta,content,version,commit):
     if component not in IDS or meta.get("functionId")!=IDS[component]:raise RuntimeError("Wrong function")
     if meta.get("entrypoint")!=ENTRY[component] or meta.get("runtime")!="java21" or meta.get("serviceAccountId")!="ajefkoc36mb0t28c0i5m":raise RuntimeError("Unexpected live configuration; inspect before deployment")
     result={k:copy.deepcopy(v) for k,v in meta.items() if k in FIELDS}
-    result.update(functionId=IDS[component],content=content,description=f"FinanceOS v{version}, git {commit}",tag=["v"+version.replace(".","-")+"-"+commit[:10]])
+    result.update(functionId=IDS[component],content=content,description=f"FinanceOS v{version}, git {commit}")
     return result
 def wait(token,operation):
     deadline=time.monotonic()+300
