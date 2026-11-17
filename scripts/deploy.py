@@ -2,6 +2,7 @@
 import argparse,base64,copy,json,os,re,time,urllib.error,urllib.parse,urllib.request
 from pathlib import Path
 API="https://serverless-functions.api.cloud.yandex.net/functions/v1"
+FOLDER="b1gg84kgslh6vs2pe3q4"
 IDS={"reminders":"d4ekbamg45gvbp1l8b6r","processor":"d4ep8ea2jl4ldogoilcm"}
 ENTRY={"reminders":"financeos.cloud.CloudReminders","processor":"financeos.cloud.CloudVkProcessor"}
 FIELDS={"runtime","entrypoint","resources","executionTimeout","serviceAccountId","environment","namedServiceAccounts","concurrency","connectivity","secrets","logOptions","storageMounts","asyncInvocationConfig","tmpfsSize","mounts","metadataOptions"}
@@ -57,6 +58,8 @@ def config_equal(key,expected,actual):
     if key!="logOptions":return expected==actual
     def canonical(value):
         result=copy.deepcopy(value or {})
+        if not result.get("logGroupId") and not result.get("folderId"):
+            result.pop("logGroupId",None);result["folderId"]=FOLDER
         if result.get("disabled",False) is False:result.pop("disabled",None)
         if result.get("minLevel","") in ("","LEVEL_UNSPECIFIED","UNSPECIFIED"):result.pop("minLevel",None)
         return result

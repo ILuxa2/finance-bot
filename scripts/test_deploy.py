@@ -1,5 +1,5 @@
 import copy,unittest
-from deploy import payload,IDS,ENTRY,rejection_category,CloudRequestRejected,config_equal
+from deploy import payload,IDS,ENTRY,rejection_category,CloudRequestRejected,config_equal,FOLDER
 class DeployGuards(unittest.TestCase):
  def fixture(self):return {"id":"old","functionId":IDS["processor"],"runtime":"java21","entrypoint":ENTRY["processor"],"serviceAccountId":"ajefkoc36mb0t28c0i5m","resources":{"memory":"1073741824"},"executionTimeout":"180s","concurrency":"1","environment":{"EXAMPLE":"nonsecret"},"secrets":[{"id":"test","versionId":"pinned","key":"token","environmentVariable":"TOKEN"}],"tags":["$latest"],"logOptions":{"disabled":False}}
  def test_configuration_copied_without_mutation(self):
@@ -22,6 +22,10 @@ class DeployGuards(unittest.TestCase):
   self.assertFalse(config_equal("logOptions",{"folderId":"same"},{"folderId":"same","disabled":True}))
   self.assertFalse(config_equal("logOptions",{"minLevel":"WARN"},{"minLevel":"INFO"}))
   self.assertFalse(config_equal("environment",{"FLAG":"1"},{"FLAG":"2"}))
+ def test_implicit_logging_destination_is_only_the_function_folder(self):
+  self.assertTrue(config_equal("logOptions",{"disabled":False},{"disabled":False,"folderId":FOLDER}))
+  self.assertFalse(config_equal("logOptions",{"disabled":False},{"disabled":False,"folderId":"another-folder"}))
+  self.assertFalse(config_equal("logOptions",{}, {"folderId":FOLDER,"logGroupId":"custom"}))
  def test_full_tag_quota_does_not_require_new_tag(self):
   meta=self.fixture();meta["tags"]=["$latest"]+["v-old-"+str(i) for i in range(10)]
   body=payload("processor",meta,"zip","0.18.16","a"*40)
