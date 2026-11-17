@@ -1,5 +1,5 @@
 import copy,unittest
-from deploy import payload,IDS,ENTRY,rejection_category,CloudRequestRejected
+from deploy import payload,IDS,ENTRY,rejection_category,CloudRequestRejected,config_equal
 class DeployGuards(unittest.TestCase):
  def fixture(self):return {"id":"old","functionId":IDS["processor"],"runtime":"java21","entrypoint":ENTRY["processor"],"serviceAccountId":"ajefkoc36mb0t28c0i5m","resources":{"memory":"1073741824"},"executionTimeout":"180s","concurrency":"1","environment":{"EXAMPLE":"nonsecret"},"secrets":[{"id":"test","versionId":"pinned","key":"token","environmentVariable":"TOKEN"}],"tags":["$latest"],"logOptions":{"disabled":False}}
  def test_configuration_copied_without_mutation(self):
@@ -16,6 +16,12 @@ class DeployGuards(unittest.TestCase):
   category=rejection_category(raw)
   self.assertEqual(category,"request-size")
   self.assertNotIn("private-secret-value",str(CloudRequestRejected(429,category)))
+ def test_log_defaults_are_semantic_but_destination_and_level_are_strict(self):
+  self.assertTrue(config_equal("logOptions",{"folderId":"same"},{"folderId":"same","disabled":False,"minLevel":"LEVEL_UNSPECIFIED"}))
+  self.assertFalse(config_equal("logOptions",{"folderId":"same"},{"folderId":"other"}))
+  self.assertFalse(config_equal("logOptions",{"folderId":"same"},{"folderId":"same","disabled":True}))
+  self.assertFalse(config_equal("logOptions",{"minLevel":"WARN"},{"minLevel":"INFO"}))
+  self.assertFalse(config_equal("environment",{"FLAG":"1"},{"FLAG":"2"}))
  def test_full_tag_quota_does_not_require_new_tag(self):
   meta=self.fixture();meta["tags"]=["$latest"]+["v-old-"+str(i) for i in range(10)]
   body=payload("processor",meta,"zip","0.18.16","a"*40)

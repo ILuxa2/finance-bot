@@ -53,6 +53,15 @@ def payload(component,meta,content,version,commit):
     result={k:copy.deepcopy(v) for k,v in meta.items() if k in FIELDS}
     result.update(functionId=IDS[component],content=content,description=f"FinanceOS v{version}, git {commit}")
     return result
+def config_equal(key,expected,actual):
+    if key!="logOptions":return expected==actual
+    def canonical(value):
+        result=copy.deepcopy(value or {})
+        if result.get("disabled",False) is False:result.pop("disabled",None)
+        if result.get("minLevel","") in ("","LEVEL_UNSPECIFIED","UNSPECIFIED"):result.pop("minLevel",None)
+        return result
+    return canonical(expected)==canonical(actual)
+
 def wait(token,operation):
     deadline=time.monotonic()+300
     while not operation.get("done"):
@@ -87,7 +96,9 @@ def main():
         current=latest(token,IDS[component])
         if current["id"]!=new or current.get("status")!="ACTIVE":raise RuntimeError("New latest version not active; inspect before continuing")
         for key in FIELDS:
-            if key in metas[component] and current.get(key)!=metas[component][key]:raise RuntimeError("Configuration changed unexpectedly: "+key)
+            if key in metas[component] and not config_equal(key,metas[component][key],current.get(key)):
+                if key=="logOptions":print("Log options differ",json.dumps({"previous":metas[component][key],"current":current.get(key)}),flush=True)
+                raise RuntimeError("Configuration changed unexpectedly: "+key)
         print(component,"active",new,"previous",old)
         with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:f.write(f"- {component}: `{new}`; previous `{old}`; git `{commit}`\n")
 if __name__=="__main__":main()
