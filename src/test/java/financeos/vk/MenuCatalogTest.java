@@ -36,6 +36,8 @@ public final class MenuCatalogTest {
                 throw new AssertionError("VK keyboard lost a button on " + screen);
             }
         }
+        if(MenuCatalog.buttons(Screen.RECURRING_PENDING).stream().anyMatch(b->b.command().equals("/regular_pending")))throw new AssertionError("Pending menu points to itself");
+        if(MenuCatalog.buttons(Screen.RECURRING).stream().noneMatch(b->b.command().equals("/regular_pending")))throw new AssertionError("Rules lost pending entry");
         System.out.println("VK menu checks passed.");
     }
 }

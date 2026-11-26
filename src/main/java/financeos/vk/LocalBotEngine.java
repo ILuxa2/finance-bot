@@ -62,6 +62,8 @@ public final class LocalBotEngine {
     private LocalDate historyFrom;
     private LocalDate historyThrough;
     private int historyPage;
+    private LocalDate reportFrom, reportThrough;
+    private String reportSection="";
     private financeos.core.CategorySections categorySections = financeos.core.CategorySections.empty();
     private final List<financeos.core.PlanEdit> planEdits = new ArrayList<>();
     private final financeos.core.PlanEditService planEditor = new financeos.core.PlanEditService();
@@ -78,7 +80,7 @@ public final class LocalBotEngine {
         EXPENSE_AMOUNT, TRANSFER_AMOUNT, DELETE_OPERATION, PLAN, DELETE_PLAN, ADD_DEBT, EDIT_DEBT, PAY_DEBT, CLOSE_DEBT,
         ADD_GOAL, FUND_GOAL, CLOSE_GOAL, SET_LIMIT, HISTORY_DATE, HISTORY_PERIOD,
         REPORT_DATE, REPORT_PERIOD, SALARY_RULE, PAYMENT_RULE,
-        CONFIRM_RULE, SKIP_RULE, DELETE_RULE, PAY_DEBT_AMOUNT, FUND_GOAL_AMOUNT, EDIT_DEBT_VALUES, PLAN_AMOUNT, PLAN_FACT_MONTH, EDIT_SELECT, HISTORY_EDIT_SELECT, EDIT_DATE, EDIT_AMOUNT, EDIT_COMMENT, EDIT_OPERATION_SECTION, EDIT_OPERATION_CATEGORY, EDIT_CONFIRM, PLAN_COPY_CONFIRM, PLAN_COPY_MONTH, PLAN_COPY_ITEM, PLAN_COPY_VALUES, CHAT_CLEAR_CONFIRM, CHAT_AUTO_CONFIRM, PLAN_EDIT_SELECT, PLAN_EDIT_NAME, PLAN_EDIT_AMOUNT, PLAN_EDIT_CONFIRM, INCOME_SECTION, EXPENSE_SECTION, SECTION_PICK, SECTION_CATEGORY_PICK, SECTION_NEW_NAME, SECTION_RENAME_NAME, CATEGORY_NEW_NAME, CATEGORY_RENAME_NAME, CATEGORY_MOVE_TARGET, ARCHIVED_CATEGORY_PICK, SECTION_CONFIRM, PLAN_SECTION_PICK, FILTER_PERIOD, FILTER_CATEGORY, FILTER_AMOUNT, FILTER_COMMENT, EDIT_DELETE_CONFIRM, QUICK_CATEGORY, QUICK_ALL_CATEGORY, REPEAT_AMOUNT, REPORT_EXPENSE_CATEGORY, NEW_EXPENSE_PLAN, NEW_EXPENSE_INCREASE, RECEIPT_INPUT }
+        CONFIRM_RULE, SKIP_RULE, DELETE_RULE, PAY_DEBT_AMOUNT, FUND_GOAL_AMOUNT, EDIT_DEBT_VALUES, PLAN_AMOUNT, PLAN_FACT_MONTH, EDIT_SELECT, HISTORY_EDIT_SELECT, EDIT_DATE, EDIT_AMOUNT, EDIT_COMMENT, EDIT_OPERATION_SECTION, EDIT_OPERATION_CATEGORY, EDIT_CONFIRM, PLAN_COPY_CONFIRM, PLAN_COPY_MONTH, PLAN_COPY_ITEM, PLAN_COPY_VALUES, CHAT_CLEAR_CONFIRM, CHAT_AUTO_CONFIRM, PLAN_EDIT_SELECT, PLAN_EDIT_NAME, PLAN_EDIT_AMOUNT, PLAN_EDIT_CONFIRM, INCOME_SECTION, EXPENSE_SECTION, SECTION_PICK, SECTION_CATEGORY_PICK, SECTION_NEW_NAME, SECTION_RENAME_NAME, CATEGORY_NEW_NAME, CATEGORY_RENAME_NAME, CATEGORY_MOVE_TARGET, ARCHIVED_CATEGORY_PICK, SECTION_CONFIRM, PLAN_SECTION_PICK, FILTER_PERIOD, FILTER_CATEGORY, FILTER_AMOUNT, FILTER_COMMENT, EDIT_DELETE_CONFIRM, QUICK_CATEGORY, QUICK_ALL_CATEGORY, REPEAT_AMOUNT, REPORT_EXPENSE_CATEGORY, REPORT_EXPENSE_SECTION, NEW_EXPENSE_PLAN, NEW_EXPENSE_INCREASE, RECEIPT_INPUT }
 
     public LocalBotEngine(long allowedVkUserId, LegacyUserData original, Clock clock) {
         this(allowedVkUserId, Set.of(allowedVkUserId), original, clock);
@@ -109,7 +111,7 @@ public final class LocalBotEngine {
         return new BotLocalState(localEntries, localPlans, debtState, goalState, limitState,
                 nextEntryId, List.copyOf(seenEvents), recurring.state(),
                 pending.name(), pendingCategory, navigation.state(), undo.newestFirst(), operationLinks,
-                new HistoryCursor(historyFrom, historyThrough, historyPage, historyCategory, historyQuery, historyAmount, editorPage, editorContext, historyKind), deletedIds, chartTheme, chatCleanup, planEdits, categorySections);
+                new HistoryCursor(historyFrom, historyThrough, historyPage, historyCategory, historyQuery, historyAmount, editorPage, editorContext, historyKind,reportFrom,reportThrough,reportSection), deletedIds, chartTheme, chatCleanup, planEdits, categorySections);
     }
 
     public synchronized void restoreState(BotLocalState state) {
@@ -133,6 +135,7 @@ public final class LocalBotEngine {
         historyFrom = state.history().from();
         historyThrough = state.history().through();
         historyPage = state.history().page();
+        reportFrom=state.history().reportFrom();reportThrough=state.history().reportThrough();reportSection=state.history().reportSection();
         historyKind = state.history().kind(); historyCategory = state.history().category(); historyQuery = state.history().query(); historyAmount = state.history().amount();
         editorPage = state.history().editorPage(); editorContext = state.history().editorContext();
         nextEntryId = state.nextEntryId();
@@ -202,6 +205,8 @@ public final class LocalBotEngine {
                     + due + ". Нажмите «⏳ Ожидают» в главном меню."));
         }
         if (text.equals("/back")) {
+            if(pending==Pending.REPORT_EXPENSE_CATEGORY&&!reportSection.isBlank())return reportExpenseSections();
+            if(pending==Pending.REPORT_EXPENSE_CATEGORY||pending==Pending.REPORT_EXPENSE_SECTION){pending=Pending.NONE;return open(Screen.REPORT,selectedReportText());}
             if(pending==Pending.EDIT_OPERATION_CATEGORY) {
                 var draft=moveDraft();saveMoveDraft(new MoveDraft(draft.id(),""));pending=Pending.EDIT_OPERATION_SECTION;
                 return answer("Выберите раздел кнопкой или напишите название категории.");
@@ -344,7 +349,7 @@ public final class LocalBotEngine {
             case "/section_confirm" -> confirmSectionChange(beforeCommand);
             case "/plan_sections" -> planSections();
             case "/plan_categories" -> {var month=selectedPlanMonth();savePlanDraft(new PlanDraft(month.toString(),"","","",""));yield open(Screen.PLAN_FACT,withMonthEnd(LocalBotViews.planFact(new financeos.core.DebtBudgetService().project(manualData(),operationLinks,now(),month),now(),month),month));}
-            case "/report_sections" -> open(Screen.REPORT,SectionViews.report(combined(),categorySections,planEdits,now(),true));
+            case "/report_sections" -> reportExpenseSections();
             case "/report_categories" -> reportExpenseCategories();
             case "/chart_section_level", "/chart_category_level" -> {try{if(navigation.current()!=Screen.CHART_LEVEL)throw new IllegalArgumentException();yield chartAtLevel(ChartKind.valueOf(sectionDraft().kind()),text.equals("/chart_section_level"));}catch(RuntimeException invalid){yield open(Screen.CHARTS,"Выберите вид диаграммы заново.");}}
             case "/report_menu" -> { pending = Pending.NONE; yield open(Screen.REPORT_OPTIONS, "📊 Отчёт. С диаграммой расходов или только текст?"); }
@@ -430,9 +435,9 @@ public final class LocalBotEngine {
                     + " Пример: 15000; 5; Аренда; квартира.");
             case "/regular_list" -> regularList();
             case "/regular_pending" -> regularPending();
-            case "/regular_confirm" -> begin(Pending.CONFIRM_RULE, Screen.RECURRING,
+            case "/regular_confirm" -> begin(Pending.CONFIRM_RULE, navigation.current()==Screen.RECURRING_PENDING?Screen.RECURRING_PENDING:Screen.RECURRING,
                     "Выберите ожидаемую операцию кнопкой для подтверждения.");
-            case "/regular_skip" -> begin(Pending.SKIP_RULE, Screen.RECURRING,
+            case "/regular_skip" -> begin(Pending.SKIP_RULE, navigation.current()==Screen.RECURRING_PENDING?Screen.RECURRING_PENDING:Screen.RECURRING,
                     "Выберите ожидаемую операцию кнопкой, чтобы пропустить этот месяц.");
             case "/regular_delete" -> begin(Pending.DELETE_RULE, Screen.RECURRING,
                     "Выберите правило кнопкой для удаления.");
@@ -650,7 +655,7 @@ public final class LocalBotEngine {
                     LocalDate date = LocalDate.parse(text);
                     if (date.isAfter(now().toLocalDate())) throw new IllegalArgumentException();
                     pending = Pending.NONE;
-                    yield open(Screen.REPORT, LocalBotViews.periodReport(combined(), now(), date, date));
+                    yield reportForPeriod(date,date);
                 } catch (RuntimeException invalid) {
                     yield answer("Неверная дата или дата в будущем. Пример: 2026-10-30.");
                 }
@@ -665,7 +670,7 @@ public final class LocalBotEngine {
                         throw new IllegalArgumentException();
                     }
                     pending = Pending.NONE;
-                    yield open(Screen.REPORT, LocalBotViews.periodReport(combined(), now(), from, through));
+                    yield reportForPeriod(from,through);
                 } catch (RuntimeException invalid) {
                     yield answer("Неверный период или конец в будущем."
                             + " Пример: 2026-10-01..2026-10-30.");
@@ -684,6 +689,7 @@ public final class LocalBotEngine {
             case NEW_EXPENSE_PLAN -> answer("Выберите, планировать ли расход: можно сохранить его без изменения плана.");
             case NEW_EXPENSE_INCREASE -> {try{yield completeNewExpense(pending,positiveMoney(text));}catch(IllegalArgumentException invalid){yield answer("Введите положительную сумму через точку.");}}
             case REPORT_EXPENSE_CATEGORY -> expenseCategoryHistory(text);
+            case REPORT_EXPENSE_SECTION -> selectReportSection(text);
             case FILTER_CATEGORY -> { historyCategory = text; historyPage = editorPage = 0; yield showFiltered(); }
             case FILTER_AMOUNT -> {
                 try { BigDecimal amount = positiveMoney(text); historyAmount = amount.toPlainString(); historyPage = editorPage = 0; yield showFiltered(); }
@@ -1095,7 +1101,7 @@ public final class LocalBotEngine {
     }
 
     private Optional<BotReply> regularPending() {
-        navigation.open(Screen.RECURRING);
+        navigation.open(Screen.RECURRING_PENDING);
         var due = recurring.pendingThrough(now().toLocalDate());
         if (due.isEmpty()) return answer("Регулярных операций для подтверждения нет.");
         var result = new StringBuilder("⏳ Ждут подтверждения\n");
@@ -1172,30 +1178,42 @@ public final class LocalBotEngine {
         return -1;
     }
 
-    private Map<String,BigDecimal> reportExpenseTotals() {
-        var totals=new java.util.TreeMap<String,BigDecimal>();var month=YearMonth.from(now());
-        for(var t:combined().transactions()) if(!t.timestamp().isAfter(now()) && t.entry().kind()==EntryKind.EXPENSE && YearMonth.from(t.entry().date()).equals(month)) totals.merge(t.entry().category(),t.entry().amount(),BigDecimal::add);
-        return totals;
+    private LocalDate reportStart(){return reportFrom==null?now().toLocalDate().withDayOfMonth(1):reportFrom;}
+    private LocalDate reportEnd(){return reportThrough==null?now().toLocalDate():reportThrough;}
+    private String reportPeriodLabel(){return reportFrom==null?YearMonth.from(now()).toString():reportFrom+" — "+reportThrough;}
+    private String selectedReportText(){return reportFrom==null?LocalBotViews.report(combined(),now()):LocalBotViews.periodReport(combined(),now(),reportFrom,reportThrough);}
+    private Optional<BotReply> reportForPeriod(LocalDate from,LocalDate through){reportFrom=from;reportThrough=through;reportSection="";pending=Pending.NONE;return open(Screen.REPORT,selectedReportText());}
+    private Map<String,BigDecimal> reportExpenseTotals(boolean bySection) {
+        var totals=new java.util.TreeMap<String,BigDecimal>();
+        for(var t:combined().transactions()){var e=t.entry();if(t.timestamp().isAfter(now())||e.kind()!=EntryKind.EXPENSE||e.date().isBefore(reportStart())||e.date().isAfter(reportEnd()))continue;
+            String section=sectionOf(e.category(),YearMonth.from(e.date()));if(!bySection&&!reportSection.isBlank()&&!categoryKey(section).equals(categoryKey(reportSection)))continue;
+            totals.merge(bySection?section:e.category(),e.amount(),BigDecimal::add);
+        }return totals;
     }
+    private Map<String,BigDecimal> reportExpenseTotals(){return reportExpenseTotals(false);}
+    private Optional<BotReply> reportExpenseSections(){reportSection="";pending=Pending.REPORT_EXPENSE_SECTION;navigation.open(Screen.REPORT);return answer(selectedReportText()+"\n\n📂 Расходы по разделам · "+reportPeriodLabel()+"\nВыберите раздел кнопкой или напишите его название."+(reportExpenseTotals(true).isEmpty()?"\nРасходов за выбранный период нет.":""));}
+    private Optional<BotReply> selectReportSection(String text){var matches=reportExpenseTotals(true).keySet().stream().filter(s->categoryKey(s).equals(categoryKey(text))).toList();if(matches.size()!=1)return answer("Раздел не найден. Выберите раздел кнопкой или напишите его название.");reportSection=matches.getFirst();return reportExpenseCategories();}
     private Optional<BotReply> reportExpenseCategories() {
         pending=Pending.REPORT_EXPENSE_CATEGORY;navigation.open(Screen.REPORT);
-        String title=LocalBotViews.report(combined(),now())+"\n\n📋 Расходы по категориям · "+YearMonth.from(now());
-        return answer(title+(reportExpenseTotals().isEmpty()?"\nРасходов за текущий месяц нет.":"\nВыберите категорию, чтобы открыть её операции за текущий месяц."));
+        String title=selectedReportText()+"\n\n📋 Расходы по категориям · "+reportPeriodLabel()+(reportSection.isBlank()?"":"\nРаздел · "+reportSection);
+        return answer(title+"\nВыберите категорию кнопкой или напишите её название."+(reportExpenseTotals().isEmpty()?(reportFrom==null?"\nРасходов за текущий месяц нет.":"\nРасходов за выбранный период нет."):""));
     }
     private Optional<BotReply> expenseCategoryHistory(String category) {
         var match=reportExpenseTotals().keySet().stream().filter(c->categoryKey(c).equals(categoryKey(category))).findFirst();
-        if(match.isEmpty())return answer("В этой категории больше нет расходов за текущий месяц. Выберите другую.");
-        historyFrom=now().toLocalDate().withDayOfMonth(1);historyThrough=now().toLocalDate();
+        if(match.isEmpty())return answer("Категория не найдена в выбранном разделе и периоде. Выберите категорию кнопкой или напишите её название.");
+        historyFrom=reportStart();historyThrough=reportEnd();
         historyCategory=match.get();historyKind="EXPENSE";historyQuery=historyAmount="";historyPage=editorPage=0;editorContext=false;
         return showFiltered();
     }
 
     private Optional<BotReply> report() {
+        reportFrom=reportThrough=null;reportSection="";
         pending = Pending.NONE;
         return open(Screen.REPORT, categorySections.enabled()?SectionViews.report(combined(),categorySections,planEdits,now(),true):LocalBotViews.report(combined(), now()));
     }
 
     private Optional<BotReply> reportWithChart() {
+        reportFrom=reportThrough=null;reportSection="";
         pending = Pending.NONE;
         return expenseChartBundle(Screen.REPORT);
     }
@@ -1969,6 +1987,7 @@ public final class LocalBotEngine {
             case EDIT_OPERATION_SECTION -> moveCategories().stream().map(c->sectionOf(c,YearMonth.from(now()))).distinct().toList();
             case EDIT_OPERATION_CATEGORY -> moveCategories().stream().filter(c->sectionOf(c,YearMonth.from(now())).equals(moveDraft().section())).toList();
             case REPORT_EXPENSE_CATEGORY -> List.copyOf(reportExpenseTotals().keySet());
+            case REPORT_EXPENSE_SECTION -> List.copyOf(reportExpenseTotals(true).keySet());
             case QUICK_CATEGORY -> quickCategories(true);
             case QUICK_ALL_CATEGORY -> quickCategories(false);
             case EDIT_SELECT, HISTORY_EDIT_SELECT -> filteredOperations(pending == Pending.HISTORY_EDIT_SELECT).stream().map(LedgerEntry::id).toList();
@@ -2011,7 +2030,7 @@ public final class LocalBotEngine {
         List<String> values = choiceValues();
         boolean editor = pending == Pending.EDIT_SELECT || pending == Pending.HISTORY_EDIT_SELECT;
         boolean quick = pending==Pending.QUICK_CATEGORY || pending==Pending.QUICK_ALL_CATEGORY;
-        boolean compact = quick || pending==Pending.REPORT_EXPENSE_CATEGORY;
+        boolean compact = quick || pending==Pending.REPORT_EXPENSE_CATEGORY || pending==Pending.REPORT_EXPENSE_SECTION;
         // Named long choices occupy full rows; reserve three rows for navigation/actions.
         boolean wideChoices=compact && values.stream().anyMatch(v->v.codePointCount(0,v.length())>12);
         int pageSize = editor || (compact && !wideChoices) ? 5 : 3;
@@ -2045,6 +2064,7 @@ public final class LocalBotEngine {
 
     private String choiceLabel(String value) {
         if(pending==Pending.REPORT_EXPENSE_CATEGORY)return value+" · "+PlanFactView.money(reportExpenseTotals().getOrDefault(value,BigDecimal.ZERO));
+        if(pending==Pending.REPORT_EXPENSE_SECTION)return value+" · "+PlanFactView.money(reportExpenseTotals(true).getOrDefault(value,BigDecimal.ZERO));
         if (pending == Pending.DELETE_PLAN) return effectiveCategory(value, YearMonth.from(now()));
         if (pending == Pending.EDIT_SELECT || pending == Pending.HISTORY_EDIT_SELECT) {
             var entry = findOperation(value).entry();

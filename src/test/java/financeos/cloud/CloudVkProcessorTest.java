@@ -139,7 +139,7 @@ public final class CloudVkProcessorTest {
         server.createContext("/messages.edit", exchange -> {
             String form=new String(exchange.getRequestBody().readAllBytes(),StandardCharsets.UTF_8);
             String message=java.util.Arrays.stream(form.split("&")).filter(f->f.startsWith("message=")).map(f->java.net.URLDecoder.decode(f.substring(8),StandardCharsets.UTF_8)).findFirst().orElseThrow();
-            boolean completion=message.startsWith("✅ Готово ·");if(completion)completedPages.incrementAndGet();else editedPages.incrementAndGet();
+            boolean completion=message.startsWith("✅ Готово ·");boolean progress=message.equals("⏳ Почти готово…")||message.equals("📊 Загружаю диаграммы…")||message.equals("✅ Ответ отправлен.");if(completion)completedPages.incrementAndGet();else if(!progress)editedPages.incrementAndGet();
             byte[] bytes = (!completion&&rejectPageEdit.get() ? "{\"error\":{\"error_code\":909}}" : "{\"response\":1}").getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, bytes.length);
             try (var out = exchange.getResponseBody()) { out.write(bytes); }
@@ -159,7 +159,7 @@ public final class CloudVkProcessorTest {
                 throw new AssertionError("Injected VK failure did not request a retry");
             } catch (IllegalStateException expected) { }
             if (progressIds.size() != 3) throw new AssertionError("Menu, category and amount did not each receive progress");
-            if (notices.stream().noneMatch(t -> t.contains("Данные сохранены"))) throw new AssertionError("Saved result was reported incorrectly");
+            if (notices.stream().noneMatch(t -> t.contains("Изменение сохранено")&&t.contains("Отправка задерживается"))) throw new AssertionError("Saved result was reported incorrectly");
             var state = mapper.readTree(objects.get("/test-bucket/state.json"));
             if (state.path("lastConversationMessageId").asLong() != 103
                     || state.path("replies").size() != 3 || sent.get() != 4) {
@@ -215,7 +215,7 @@ public final class CloudVkProcessorTest {
             var lostResponseTrigger = eventTrigger(objects, mapper, lostResponseEvent);
             loseCommitResponse.set(true);
             expectFailure(processor, lostResponseTrigger);
-            if (!notices.getLast().contains("Данные сохранены")) throw new AssertionError("Ambiguous PUT lost its committed result");
+            if (!notices.getLast().contains("Отправка задерживается")||notices.getLast().contains("Изменение сохранено")) throw new AssertionError("Read-only response claimed a financial change");
             String committed = mapper.readTree(objects.get("/test-bucket/state.json")).path("stateBase64").asText();
             processor.apply(lostResponseTrigger);
             if (!committed.equals(mapper.readTree(objects.get("/test-bucket/state.json")).path("stateBase64").asText())) {

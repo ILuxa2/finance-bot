@@ -39,7 +39,8 @@ public final class CloudChatCleanupTest {
         var state=new AtomicReference<>(envelope(original,replies));var deletes=new AtomicInteger();var sends=new AtomicInteger();
         var emptyChat=new AtomicBoolean();var lastSent=new AtomicReference<String>("");
         var removed=new HashSet<Long>();var privateChat=new AtomicBoolean(true);var moderates=new AtomicBoolean(true);
-        long old=Instant.now().minus(Duration.ofDays(3)).getEpochSecond();
+        var historyFailures=new AtomicInteger();var historyReads=new AtomicInteger();
+        long old=Instant.now().minus(Duration.ofDays(10)).getEpochSecond();
         var server=HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(),0),0);
         server.createContext("/test-bucket/",exchange->{try{
             if(exchange.getRequestURI().getPath().contains("/backups/")){exchange.getRequestBody().readAllBytes();exchange.sendResponseHeaders(200,-1);return;}
@@ -57,7 +58,7 @@ public final class CloudChatCleanupTest {
             switch(exchange.getRequestURI().getPath()){
                 case "/method/messages.getConversationMembers" -> response=Map.of("count",privateChat.get()?2:3,"items",privateChat.get()?List.of(Map.of("member_id",42),Map.of("member_id",-99)):List.of(Map.of("member_id",42),Map.of("member_id",-99),Map.of("member_id",7)));
                 case "/method/messages.getConversationsById" -> response=Map.of("items",List.of(Map.of("peer",Map.of("id",PEER),"chat_settings",Map.of("acl",Map.of("can_moderate",moderates.get())))));
-                case "/method/messages.getHistory" -> {var items=new ArrayList<Map<String,Object>>();for(long cmid:emptyChat.get()?List.of(1L,2L):List.of(1L,2L,101L,200L)){items.add(Map.of("peer_id",PEER,"conversation_message_id",cmid,"from_id",cmid%2==0?42:-99,"date",old,"is_deleted",removed.contains(cmid)));}response=Map.of("items",items);}
+                case "/method/messages.getHistory" -> {historyReads.incrementAndGet();if(historyFailures.get()>0){historyFailures.decrementAndGet();exchange.sendResponseHeaders(503,-1);exchange.close();return;}var items=new ArrayList<Map<String,Object>>();for(long cmid:emptyChat.get()?List.of(1L,2L):List.of(1L,2L,101L,200L)){items.add(Map.of("peer_id",PEER,"conversation_message_id",cmid,"from_id",cmid%2==0?42:-99,"date",old,"is_deleted",removed.contains(cmid)));}response=Map.of("items",items);}
                 case "/method/messages.delete" -> {
                     if(M.readTree(state.get()).path("lastConversationMessageId").asLong()!=100)throw new AssertionError("Delete before checkpoint");
                     var result=new ArrayList<Map<String,Object>>();for(var part:f.get("cmids").split(",")){long cmid=Long.parseLong(part);if(cmid>100)throw new AssertionError("Deleted an unprocessed/new message");removed.add(cmid);result.add(Map.of("peer_id",PEER,"conversation_message_id",cmid,"response",1));}deletes.incrementAndGet();response=result;
@@ -102,7 +103,15 @@ public final class CloudChatCleanupTest {
             emptyChat.set(false);int expectedDeletes=deletes.get();
             privateChat.set(false);state.set(envelope(enabled,new LinkedHashMap<>()));processor.runAutomaticCleanup();if(deletes.get()!=expectedDeletes)throw new AssertionError("Privacy guard ignored");
             privateChat.set(true);moderates.set(false);int before=sends.get();state.set(envelope(enabled,new LinkedHashMap<>()));processor.runAutomaticCleanup();if(deletes.get()!=expectedDeletes||sends.get()!=before+1)throw new AssertionError("Blocked cleanup was not reported");
-            System.out.println("Cloud cleanup: post-commit manual execution, receipt replay, daily throttling, financial isolation and pending/privacy/rights guards passed.");
+            moderates.set(true);removed.clear();historyFailures.set(3);var retryRoot=original.deepCopy();new ChatCleanupSettings(7,"").write(retryRoot);state.set(envelope(retryRoot,new LinkedHashMap<>()));
+            int readsBefore=historyReads.get();processor.runAutomaticCleanup();var failedSettings=ChatCleanupSettings.read(local(state.get()));
+            if(!failedSettings.lastDate().isBlank()||failedSettings.attempts()!=1||!failedSettings.leaseId().isBlank()||historyReads.get()!=readsBefore+3)throw new AssertionError("Failed 7-day cleanup marked complete or unbounded request retries");
+            processor.runAutomaticCleanup();if(historyReads.get()!=readsBefore+3)throw new AssertionError("Backoff ignored");
+            var afterFailure=local(state.get());new ChatCleanupSettings(7,"",failedSettings.attemptDate(),1,Instant.now().minusSeconds(1).toString(),"").write(afterFailure);state.set(envelope(afterFailure,new LinkedHashMap<>()));processor.runAutomaticCleanup();
+            if(ChatCleanupSettings.read(local(state.get())).lastDate().isBlank()||removed.size()!=2)throw new AssertionError("Same-day retry after failure never succeeded");
+            var capped=original.deepCopy();new ChatCleanupSettings(7,"",LocalDate.now(ZoneId.of("Europe/Moscow")).toString(),3,"","").write(capped);state.set(envelope(capped,new LinkedHashMap<>()));int cappedReads=historyReads.get();processor.runAutomaticCleanup();if(historyReads.get()!=cappedReads)throw new AssertionError("Daily retry cap ignored");
+            if(!finances(local(state.get())).equals(finances(original)))throw new AssertionError("Cleanup retries changed money");
+            System.out.println("Cloud cleanup: bounded requests, 7-day failure/restart/backoff/retry/daily cap, privacy, manual confirmation and financial isolation passed.");
         }finally{server.stop(0);}
     }
 }
