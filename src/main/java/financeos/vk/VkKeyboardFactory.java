@@ -10,6 +10,8 @@ import java.util.Map;
 public final class VkKeyboardFactory {
     private final ObjectMapper mapper = new ObjectMapper();
 
+    private String color(MenuButton button){String c=button.command();if(c.equals("/edit_delete_confirm")||c.equals("/delete_plan_confirm"))return "negative";if(c.equals("/edit_confirm")||c.equals("/section_confirm")||c.equals("/regular_accept")||c.equals("/plan_edit_confirm"))return "positive";return "primary";}
+
     private String payload(String command) {
         try { return mapper.writeValueAsString(Map.of("cmd", command)); }
         catch (JsonProcessingException e) { throw new IllegalStateException(e); }
@@ -41,7 +43,7 @@ public final class VkKeyboardFactory {
             int length = button.label().codePointCount(0, button.label().length());
             if (length > 40) throw new IllegalArgumentException("VK button label exceeds 40 characters");
             Map<String, Object> rendered = Map.of("action", Map.of("type", "text", "label", button.label(),
-                    "payload", payload(button.command())), "color", "primary");
+                    "payload", payload(button.command())), "color", color(button));
             if ((!mainMenu && length > (isChoice ? 12 : 14)) || (isChoice && !compactChoices)) {
                 // Flush before a wide button so visual order matches the numbered list.
                 if(pendingShort!=null){rows.add(List.of(pendingShort));pendingShort=null;}

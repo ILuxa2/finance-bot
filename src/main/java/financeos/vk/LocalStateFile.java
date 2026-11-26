@@ -376,11 +376,11 @@ public final class LocalStateFile {
         return root.has("categorySections") ? mapper.treeToValue(root.path("categorySections"),financeos.core.CategorySections.class) : financeos.core.CategorySections.empty();
     }
     private void writePlanEdits(ObjectNode root,List<financeos.core.PlanEdit> edits) {
-        var array=root.putArray("planEdits");for(var edit:edits){var item=array.addObject();item.put("month",edit.month().toString());item.put("source",edit.source());item.put("category",edit.category());item.put("amount",edit.amount().toPlainString());item.put("canonical",edit.canonical());}
+        var array=root.putArray("planEdits");for(var edit:edits){var item=array.addObject();item.put("month",edit.month().toString());item.put("source",edit.source());item.put("category",edit.category());item.put("amount",edit.amount().toPlainString());item.put("canonical",edit.canonical());item.put("deleted",edit.deleted());}
     }
     private List<financeos.core.PlanEdit> readPlanEdits(JsonNode root) throws IOException {
         if(!root.has("planEdits"))return List.of();requireArray(root,"planEdits");var edits=new ArrayList<financeos.core.PlanEdit>();
-        for(var item:root.path("planEdits"))edits.add(new financeos.core.PlanEdit(YearMonth.parse(text(item,"month")),text(item,"source"),text(item,"category"),Money.of(text(item,"amount")),item.path("canonical").asBoolean()));
+        for(var item:root.path("planEdits"))edits.add(new financeos.core.PlanEdit(YearMonth.parse(text(item,"month")),text(item,"source"),text(item,"category"),Money.of(text(item,"amount")),item.path("canonical").asBoolean(),item.path("deleted").asBoolean()));
         return List.copyOf(edits);
     }
 

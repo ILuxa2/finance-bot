@@ -19,7 +19,7 @@ public final class MenuCatalog {
                     new MenuButton("💬 Обратная связь", "/feedback"))),
             Map.entry(Screen.PREFERENCES, List.of(
                     new MenuButton("📂 Разделы и категории", "/sections"), new MenuButton("🚦 Лимиты", "/limits"),
-                    new MenuButton("🎨 Тема диаграмм", "/chart_theme"), new MenuButton("🧹 Очистка чата", "/chat_cleanup"))),
+                    new MenuButton("🎨 Оформление", "/appearance"), new MenuButton("🧹 Очистка чата", "/chat_cleanup"))),
             Map.entry(Screen.HISTORY_FILTER, List.of(
                     new MenuButton("Сегодня", "/filter_today"), new MenuButton("Вчера", "/filter_yesterday"),
                     new MenuButton("Этот месяц", "/filter_month"), new MenuButton("Выбрать период", "/filter_period"),
@@ -57,7 +57,7 @@ public final class MenuCatalog {
                     new MenuButton("🧠 Выводы", "/insights"),
                     new MenuButton("📜 История", "/history"))),
             Map.entry(Screen.HISTORY, List.of(
-                    new MenuButton("🔁 Повторить", "/history_repeat"),
+                    
                     new MenuButton("🔎 Фильтры", "/operations"),
                     new MenuButton("📅 По дате", "/history_date"),
                     new MenuButton("🗓 За период", "/history_period"),
@@ -79,7 +79,7 @@ public final class MenuCatalog {
                     new MenuButton("✅ Включить", "/chat_auto_confirm"), new MenuButton("❌ Отмена", "/chat_cleanup"))),
             Map.entry(Screen.SECTIONS,List.of(new MenuButton("Разделы","/section_pick"),new MenuButton("Новый раздел","/section_new"),new MenuButton("Архив","/category_archive_list"),new MenuButton("Убрать пустые","/sections_prune"),new MenuButton("Стандартный набор","/defaults_setup"))),
             Map.entry(Screen.SECTION_CARD,List.of(new MenuButton("Категории","/section_categories"),new MenuButton("Новая категория","/category_new"),new MenuButton("Переименовать","/section_rename"),new MenuButton("Удалить раздел","/section_delete"))),
-            Map.entry(Screen.SECTION_CATEGORY_CARD,List.of(new MenuButton("Переименовать","/category_rename"),new MenuButton("Перенести","/category_move"),new MenuButton("В архив","/category_delete"))),
+            Map.entry(Screen.SECTION_CATEGORY_CARD,List.of(new MenuButton("Переименовать","/category_rename"),new MenuButton("Перенести","/category_move"),new MenuButton("📜 Операции","/category_operations"),new MenuButton("🔗 Объединить","/category_merge"),new MenuButton("🗑 Удалить категорию","/category_delete"),new MenuButton("В архив","/category_archive"))),
             Map.entry(Screen.SECTION_CONFIRM,List.of(new MenuButton("✅ Подтвердить","/section_confirm"),new MenuButton("❌ Отмена","/sections"))),
             Map.entry(Screen.PLAN_SECTION_DETAIL,List.of(new MenuButton("Разделы","/plan_sections"),new MenuButton("Категории","/plan_categories"),new MenuButton("Изменить план","/plan_edit"))),
             Map.entry(Screen.CHART_LEVEL,List.of(new MenuButton("По разделам","/chart_section_level"),new MenuButton("По категориям","/chart_category_level"))),
@@ -161,7 +161,7 @@ public final class MenuCatalog {
         }
         var text = new StringBuilder("❓ Помощь FinanceOS · команды\n\n");
         commands.forEach((command, label) -> text.append(command).append(": ")
-                .append(label).append('\n'));
+                .append(label.replaceAll("^[^\\p{L}\\p{N}]+","")).append('\n'));
         return text.append("\nВвод: 1250.50, продукты. Дробная часть через точку."
                 + "\n/back — назад; /undo — отмена изменения.").toString();
     }

@@ -32,8 +32,8 @@ public final class ExistingPlanEditTest {
             amount(e,"Еда","-1");if(e.exportState().planEdits().size()!=1)throw new AssertionError("Negative amount changed plan");send(e,"0");send(e,"/plan_edit_cancel");has(send(e,"/plan_fact_current"),"Еда\nПлан · 1 000 ₽");
             amount(e,"Еда","0");send(e,"/plan_edit_confirm");has(send(e,"/plan_fact_current"),"Еда\nПлан · 0 ₽\nФакт · 30 ₽");
             send(e,"/add_plan");send(e,"123, Тест");send(e,"/plan_edit_current");send(e,"Тест");send(e,"/plan_edit_name");send(e,"Тест новый");send(e,"/plan_edit_confirm");
-            amount(e,"Тест новый","200");send(e,"/plan_edit_confirm");send(e,"/delete_plan");has(send(e,"Тест новый"),"удалён");
-            send(e,"/add_plan");send(e,"300, Тест");has(send(e,"/plan_fact_current"),"Тест\nПлан · 300 ₽");
+            amount(e,"Тест новый","200");send(e,"/plan_edit_confirm");send(e,"/delete_plan");send(e,"2026-11");send(e,"Прочее");send(e,"Тест новый");has(send(e,"/section_confirm"),"удалён");
+            send(e,"/add_plan");send(e,"300, Тест новый");has(send(e,"/plan_fact_current"),"Тест новый\nПлан · 300 ₽");
             send(e,"/undo");send(e,"/undo");has(send(e,"/plan_fact_current"),"Тест новый\nПлан · 200 ₽");
             if(!data.toString().equals(original))throw new AssertionError("Original data changed");
             var stale=new LocalBotEngine(123,data,CLOCK);amount(stale,"Еда","3000");var state=stale.exportState();

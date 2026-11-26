@@ -32,7 +32,7 @@ public final class InterfaceAgreementTest {
             var png=new GroupedExpenseChart().png(pages,dark);
             var image=ImageIO.read(new ByteArrayInputStream(png));
             int color=image.getRGB(0,0)&0xffffff;
-            check(color==(dark?0x080b0e:0xf2f6f5),"Common theme mismatch");
+            check(dark?((color&255)>(color>>16&255)):color==0xf2f6f5,"Common theme mismatch");
             // A 50% first category occupies exactly half of the full section track.
             int barY=205+83+44;
             check(image.getRGB(620,barY)!=image.getRGB(630,barY),"Rendered bar ignores section denominator");
@@ -57,7 +57,7 @@ public final class InterfaceAgreementTest {
         check(send(engine,"/commands").text().contains("/expense"),"Alternative commands lost");
         send(engine,"/settings");check(send(engine,"/preferences").screen()==Screen.PREFERENCES,"Preferences is not separate from More");
         check(send(engine,"/back").screen()==Screen.SETTINGS,"Back does not return to More");
-        var chart=send(engine,"/report_chart");check(chart.images().size()==2,"Expense-only report must contain grouped expense and comparison charts");
+        var chart=send(engine,"/report_chart");check(chart.images().size()==3,"Expense-only report must contain grouped expense and comparison charts");
         check(before.entries().equals(engine.exportState().entries())&&before.plans().equals(engine.exportState().plans()),"Views mutated finances");
         MenuCatalogTest.main(args);
         System.out.println("Agreed interface: exact main menu, stable Back footer, help/commands, preferences, grouped chart scale/themes and read-only reports passed.");

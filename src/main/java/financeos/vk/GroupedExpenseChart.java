@@ -30,8 +30,8 @@ public final class GroupedExpenseChart {
         if (height > 30000) throw new IllegalArgumentException("Слишком много категорий для одной диаграммы. Выберите меньший период.");
         var image = new BufferedImage(WIDTH, height, BufferedImage.TYPE_INT_RGB);
         var g = image.createGraphics();
-        Color background = dark ? new Color(8,11,14) : new Color(242,246,245);
-        Color panel = dark ? new Color(19,25,31) : Color.WHITE;
+        Color background = dark ? new Color(14,20,32) : new Color(242,246,245);
+        Color panel = dark ? new Color(16,23,36) : Color.WHITE;
         Color text = dark ? new Color(237,242,244) : new Color(25,45,54);
         Color muted = dark ? new Color(169,179,186) : new Color(78,104,99);
         Color track = dark ? new Color(40,49,58) : new Color(231,238,236);
@@ -39,7 +39,7 @@ public final class GroupedExpenseChart {
         try {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            g.setColor(background);g.fillRect(0,0,WIDTH,height);
+            g.setColor(background);g.fillRect(0,0,WIDTH,height);if(dark)NightAtlas.background(g,WIDTH,height);
             g.setColor(text);g.setFont(new Font("SansSerif",Font.BOLD,29));
             g.drawString("РАСХОДЫ ПО РАЗДЕЛАМ И КАТЕГОРИЯМ",52,65);
             g.setFont(new Font("SansSerif",Font.PLAIN,23));g.setColor(muted);
@@ -52,7 +52,7 @@ public final class GroupedExpenseChart {
                 var parts=item.getValue();var total=parts.getFirst().total();
                 int count=parts.stream().mapToInt(p->p.chart().labels().size()).sum();
                 int cardHeight=100+count*76;
-                Color accent=ACCENTS[index++%ACCENTS.length];
+                Color accent=dark?new Color(175,199,238):ACCENTS[index%ACCENTS.length];index++;
                 g.setColor(panel);g.fillRoundRect(30,y,WIDTH-60,cardHeight,24,24);
                 g.setColor(accent);g.fillRoundRect(50,y+24,7,32,6,6);
                 g.setFont(new Font("SansSerif",Font.BOLD,25));
