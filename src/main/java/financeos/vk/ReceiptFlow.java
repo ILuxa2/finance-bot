@@ -29,8 +29,7 @@ public final class ReceiptFlow {
     if(action.equals("next")||action.equals("prev"))return render(change(d,d.phase(),d.selected(),d.single(),d.editing(),Math.max(0,d.page()+(action.equals("next")?1:-1))),categories,"");
     if(action.startsWith("cat-") && (d.phase().equals("CATEGORY")||d.phase().equals("EDIT_CATEGORY"))){
      var f2=action.split("-");int i=Integer.parseInt(f2[1]);var options=options(d,categories);String selected=options.get(i);if(f2.length!=3||!key(selected).equals(f2[2])||(!d.editing()&&!categories.contains(selected)))return render(d,categories,"Категории изменились. Выберите заново.");
-     if(d.single())return allocate(d,selected,Money.of(d.total()),false,categories);
-     return render(change(d,"AMOUNT",selected,false,d.editing(),0),categories,"");
+     return selectCategory(d,selected,categories);
     }
     if(action.equals("all")&&d.phase().equals("AMOUNT")){var available=remaining(d).add(d.editing()?existing(d,d.selected()):BigDecimal.ZERO);return allocate(d,d.selected(),available,d.editing(),categories);}
     if(action.equals("save")&&d.phase().equals("REVIEW")&&remaining(d).signum()==0&&!d.parts().isEmpty()){
@@ -40,6 +39,7 @@ public final class ReceiptFlow {
     return render(d,categories,"Выберите действие на текущем шаге.");
    }
    switch(d.phase()){
+    case "CATEGORY","EDIT_CATEGORY"->{var matches=options(d,categories).stream().filter(c->CategorySections.key(c).equals(CategorySections.key(input))).toList();if(matches.size()!=1)return render(d,categories,matches.isEmpty()?"Категория не найдена. Введите существующее название или выберите кнопкой.":"Найдено несколько категорий. Уточните выбор кнопкой.");return selectCategory(d,matches.getFirst(),categories);}
     case "INPUT","TOTAL","REVIEW"->{var amount=positive(input);if(amount.compareTo(Money.of(d.total()).subtract(remaining(d)))<0)throw new IllegalArgumentException();return render(new Draft(nonce(),amount.toPlainString(),d.date(),d.store(),d.fingerprint(),d.parts(),"REVIEW","",false,false,0),categories,"");}
     case "DATE"->{var date=LocalDate.parse(input);if(date.getYear()<2000||date.getYear()>2100)throw new IllegalArgumentException();return render(new Draft(nonce(),d.total(),date.toString(),d.store(),d.fingerprint(),d.parts(),"REVIEW","",false,false,0),categories,"");}
     case "STORE"->{if(input.isBlank()||input.length()>80)throw new IllegalArgumentException();return render(new Draft(nonce(),d.total(),d.date(),input,d.fingerprint(),d.parts(),"REVIEW","",false,false,0),categories,"");}
@@ -48,6 +48,7 @@ public final class ReceiptFlow {
    }
   }catch(IllegalArgumentException|IndexOutOfBoundsException|DateTimeException invalid){return render(d,categories,"Проверьте ввод: сумма через точку, не больше остатка; дата ГГГГ-ММ-ДД. Для удаления распределения в режиме изменения введите 0.");}
  }
+ static Result selectCategory(Draft d,String selected,List<String> categories){if(d.single())return allocate(d,selected,Money.of(d.total()),false,categories);return render(change(d,"AMOUNT",selected,false,d.editing(),0),categories,"");}
  static BigDecimal positive(String text){var amount=Money.of(text);if(amount.signum()<=0||amount.precision()>14)throw new IllegalArgumentException();return amount;}
  static BigDecimal existing(Draft d,String category){return d.parts().stream().filter(p->p.category().equals(category)).map(p->Money.of(p.amount())).reduce(BigDecimal.ZERO,BigDecimal::add);}
  static Result allocate(Draft d,String category,BigDecimal amount,boolean replace,List<String> categories){
@@ -65,7 +66,7 @@ public final class ReceiptFlow {
   var buttons=new ArrayList<MenuButton>();
   if(d.phase().equals("INPUT"))text.append("\nПришлите одно фото чека, текст чека или введите его итоговую сумму.");
   else if(d.phase().equals("CATEGORY")||d.phase().equals("EDIT_CATEGORY")){
-   var options=options(d,categories);int pages=Math.max(1,(options.size()+2)/3),page=Math.min(d.page(),pages-1);text.append("\n\nВыберите категорию · ").append(page+1).append(" / ").append(pages);
+   var options=options(d,categories);int pages=Math.max(1,(options.size()+2)/3),page=Math.min(d.page(),pages-1);text.append("\n\nВыберите категорию кнопкой или напишите её название.\nСтраница · ").append(page+1).append(" / ").append(pages);
    for(int i=page*3;i<Math.min(options.size(),page*3+3);i++){String cat=options.get(i);text.append("\n").append(cat);buttons.add(button(d,label(cat),"cat-"+i+"-"+key(cat)));}
    if(page>0)buttons.add(button(d,"⬅️ Ранее","prev"));if(page+1<pages)buttons.add(button(d,"➡️ Далее","next"));if(options.isEmpty())text.append("\nКатегорий нет. Создайте их через «Ещё» → «Разделы».");
   }else if(d.phase().equals("AMOUNT")){text.append("\n\nКатегория · ").append(d.selected()).append("\nВведите сумму для категории. Дробная часть через точку.");if(d.editing())text.append("\nСейчас · ").append(PlanFactView.money(existing(d,d.selected()))).append(". Введите новую сумму или 0 для удаления.");buttons.add(button(d,"Весь остаток","all"));}

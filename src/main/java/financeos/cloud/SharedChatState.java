@@ -2,7 +2,7 @@ package financeos.cloud;
 import com.fasterxml.jackson.databind.*;import com.fasterxml.jackson.databind.node.*;import java.util.*;
 /** Keeps financial state shared while selecting only the current actor's UI draft. */
 public final class SharedChatState {
- private static final List<String> UI=List.of("pending","pendingCategory","currentScreen","navigationBackStack","historyFrom","historyThrough","historyPage","historyCategory","historyKind","historyQuery","historyAmount","editorPage","editorContext","chartTheme");
+ private static final List<String> UI=List.of("pending","pendingCategory","currentScreen","navigationBackStack","historyFrom","historyThrough","historyPage","historyCategory","historyKind","historyQuery","historyAmount","editorPage","editorContext","chartTheme","reportFrom","reportThrough","reportSection");
  private static ObjectNode ui(ObjectNode root){var out=new ObjectMapper().createObjectNode();for(var k:UI)if(root.has(k))out.set(k,root.get(k).deepCopy());return out;}
  public static ObjectNode prepare(ObjectNode previous,ObjectNode defaults,long owner,long actor){
   var root=previous.deepCopy();var sessions=root.withObject("/memberSessions");

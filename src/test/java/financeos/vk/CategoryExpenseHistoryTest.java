@@ -19,7 +19,12 @@ public final class CategoryExpenseHistoryTest {
    if(!finance.equals(engine.exportState().entries().toString()))throw new AssertionError("Read-only drilldown changed finance");
    var empty=new LocalBotEngine(42,new LegacyUserData(Money.of("1"),now,List.of(),List.of()),CLOCK);has(send(empty,"/report_categories"),"Расходов за текущий месяц нет");
    var longEntries=new ArrayList<LegacyUserData.TimedEntry>();for(int i=0;i<12;i++)longEntries.add(item("long"+i,EntryKind.EXPENSE,"1","Длинная категория номер "+i,"тест",now));var large=new LocalBotEngine(42,new LegacyUserData(Money.of("100"),now.minusDays(1),longEntries,List.of()),CLOCK);r=send(large,"/report_categories");has(r,"Расходы по категориям");for(int i=0;i<4;i++){var next=r.buttons().stream().filter(b->b.label().contains("Следующие")).findFirst();if(next.isEmpty())break;r=send(large,next.get().command());has(r,"Варианты");}
-   System.out.println("Category expenses: totals agree with rows, income/date exclusion, pages, durable cursor, edit/back, long menus and unchanged finance passed.");
+   send(engine,"/defaults_setup");send(engine,"/defaults_confirm");send(engine,"/report_period");send(engine,"2026-10-01..2026-10-31");r=send(engine,"/report_sections");has(r,"напишите его название");
+   file.save(engine.exportState());var restarted=new LocalBotEngine(42,base,CLOCK);restarted.restoreState(file.load().orElseThrow());String section=r.buttons().stream().filter(b->b.command().startsWith("/choose/")).findFirst().orElseThrow().label();r=send(restarted,section.toLowerCase(Locale.ROOT));has(r,"напишите её название");has(r,"Еда · 888 ₽");
+   r=send(restarted," еда ");has(r,"прошлый месяц");has(r,"Период · 2026-10-01 — 2026-10-31");if(r.text().contains("покупка 1")||r.text().contains("не расход"))throw new AssertionError("Report period changed during typed drilldown");
+   file.save(restarted.exportState());var restored=new LocalBotEngine(42,base,CLOCK);restored.restoreState(file.load().orElseThrow());has(send(restored,"/back"),"2026-10-01 — 2026-10-31");
+   if(!finance.equals(restored.exportState().entries().toString()))throw new AssertionError("Typed report browsing changed entries");
+   System.out.println("Category/section typed browsing, period retention, restart, pages, edit/back and financial isolation passed.");
   }finally{Files.deleteIfExists(path);Files.deleteIfExists(dir);}
  }
 }

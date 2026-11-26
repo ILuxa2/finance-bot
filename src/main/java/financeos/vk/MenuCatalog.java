@@ -135,6 +135,7 @@ public final class MenuCatalog {
                     new MenuButton("📊 План / факт", "/chart_plan"),
                     new MenuButton("💳 Долги", "/chart_debts"),
                     new MenuButton("🎯 Цели", "/chart_goals"),new MenuButton("🎨 Тема", "/chart_theme"))),
+            Map.entry(Screen.RECURRING_PENDING, List.of(new MenuButton("✅ Подтвердить", "/regular_confirm"),new MenuButton("⏭ Пропуск", "/regular_skip"))),
             Map.entry(Screen.RECURRING, List.of(
                     new MenuButton("💰 Зарплата", "/salary_rule"),
                     new MenuButton("💸 Платёж", "/payment_rule"),

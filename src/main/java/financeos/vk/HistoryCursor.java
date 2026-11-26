@@ -2,7 +2,9 @@ package financeos.vk;
 import java.time.LocalDate;
 /** Durable browsing context, independent from financial undo snapshots. */
 public record HistoryCursor(LocalDate from, LocalDate through, int page, String category,
-                            String query, String amount, int editorPage, boolean editorContext, String kind) {
+                            String query, String amount, int editorPage, boolean editorContext, String kind,
+                            LocalDate reportFrom, LocalDate reportThrough, String reportSection) {
+    public HistoryCursor(LocalDate from, LocalDate through, int page, String category,String query,String amount,int editorPage,boolean editorContext,String kind){this(from,through,page,category,query,amount,editorPage,editorContext,kind,null,null,"");}
     public HistoryCursor(LocalDate from, LocalDate through, int page, String category, String query, String amount, int editorPage, boolean editorContext) { this(from,through,page,category,query,amount,editorPage,editorContext,""); }
     public HistoryCursor(LocalDate from, LocalDate through, int page) { this(from, through, page, "", "", "", 0, false); }
     public HistoryCursor {
@@ -10,6 +12,8 @@ public record HistoryCursor(LocalDate from, LocalDate through, int page, String 
                 || (from != null && from.isAfter(through))) throw new IllegalArgumentException("Invalid history cursor");
         if(kind==null || !java.util.Set.of("", "EXPENSE", "INCOME").contains(kind)) throw new IllegalArgumentException("Invalid history kind");
         java.util.Objects.requireNonNull(category); java.util.Objects.requireNonNull(query); java.util.Objects.requireNonNull(amount);
+        java.util.Objects.requireNonNull(reportSection);
+        if((reportFrom==null)!=(reportThrough==null)||(reportFrom!=null&&reportFrom.isAfter(reportThrough)))throw new IllegalArgumentException("Invalid report period");
     }
     public static HistoryCursor empty() { return new HistoryCursor(null, null, 0); }
 }

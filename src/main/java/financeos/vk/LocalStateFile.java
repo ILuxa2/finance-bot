@@ -228,6 +228,9 @@ public final class LocalStateFile {
         root.put("historyKind", state.history().kind());
         root.put("historyQuery", state.history().query());
         root.put("historyAmount", state.history().amount());
+        root.put("reportFrom",state.history().reportFrom()==null?"":state.history().reportFrom().toString());
+        root.put("reportThrough",state.history().reportThrough()==null?"":state.history().reportThrough().toString());
+        root.put("reportSection",state.history().reportSection());
         root.put("editorPage", state.history().editorPage());
         root.put("editorContext", state.history().editorContext());
         var undoHistory = root.putArray("undoHistory");
@@ -420,7 +423,9 @@ public final class LocalStateFile {
         return new HistoryCursor(from.isBlank() ? null : LocalDate.parse(from),
                 through.isBlank() ? null : LocalDate.parse(through), root.path("historyPage").asInt(0), root.path("historyCategory").asText(""),
                 root.path("historyQuery").asText(""), root.path("historyAmount").asText(""),
-                root.path("editorPage").asInt(0), root.path("editorContext").asBoolean(false),root.path("historyKind").asText(""));
+                root.path("editorPage").asInt(0), root.path("editorContext").asBoolean(false),root.path("historyKind").asText(""),
+                root.path("reportFrom").asText("").isBlank()?null:LocalDate.parse(root.path("reportFrom").asText()),
+                root.path("reportThrough").asText("").isBlank()?null:LocalDate.parse(root.path("reportThrough").asText()),root.path("reportSection").asText(""));
     }
 
     private void requireArray(JsonNode root, String name) throws IOException {

@@ -61,6 +61,7 @@ public final class VkChatCleaner {
         var candidates = new TreeSet<Long>(); boolean more = true;
         for (int page = 0; page < 50; page++) {
             if (System.nanoTime() - started > Duration.ofSeconds(20).toNanos()) break;
+            if(page>0)Thread.sleep(200);
             var history = api("messages.getHistory", Map.of("peer_id", "" + peer, "count", "200", "offset", "" + (page * 200)));
             var messages = history.path("response").path("items");
             if (!messages.isArray()) throw new IOException("VK cleanup history response is invalid");
@@ -79,6 +80,7 @@ public final class VkChatCleaner {
         var ids = new ArrayList<>(candidates); int removed = 0, refused = 0;
         for (int start = 0; start < ids.size(); start += 100) {
             if (System.nanoTime() - started > Duration.ofSeconds(60).toNanos()) { more = true; break; }
+            if(start>0)Thread.sleep(200);
             var batch = ids.subList(start, Math.min(start + 100, ids.size()));
             String cmids = batch.stream().map(Object::toString).collect(java.util.stream.Collectors.joining(","));
             JsonNode response;
@@ -118,6 +120,14 @@ public final class VkChatCleaner {
         return false;
     }
     private JsonNode api(String method, Map<String,String> parameters) throws IOException, InterruptedException {
+        for(int attempt=0;;attempt++){
+            try{return apiOnce(method,parameters);}
+            catch(ApiFailure failure){if(attempt>=2||(failure.code!=6&&failure.code!=10))throw failure;}
+            catch(IOException failure){if(attempt>=2)throw failure;}
+            Thread.sleep(250L*(attempt+1));
+        }
+    }
+    private JsonNode apiOnce(String method, Map<String,String> parameters) throws IOException, InterruptedException {
         var fields = new LinkedHashMap<>(parameters); fields.put("access_token", token); fields.put("v", "5.199");
         String body = fields.entrySet().stream().map(e -> URLEncoder.encode(e.getKey(), StandardCharsets.UTF_8) + "="
                 + URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8)).collect(java.util.stream.Collectors.joining("&"));

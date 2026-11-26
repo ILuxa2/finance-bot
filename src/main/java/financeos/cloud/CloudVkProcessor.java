@@ -120,6 +120,7 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
             if (i > 0) result.append(" / ");
             result.append(failure.getClass().getSimpleName());
             String message = failure.getMessage();
+            if(message!=null&&message.matches("VK cleanup (?:API error |HTTP )[0-9]{1,3}"))result.append(": ").append(message);
             if (message != null && message.matches("(?:VK (?:photo API error |API error |history API error )|Object Storage (?:read|write) failed with HTTP )[0-9]{1,3}")) {
                 result.append(": ").append(message);
             }
@@ -161,8 +162,8 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
         // retried notices using this action's stable, separate random_id.
         try {
             long id=sender().notice(new VkEvent(event.type(), event.groupId(), event.userId(), event.peerId(),
-                    event.eventId() + ":progress", ""), "⏳ Обрабатываю…");
-            if(isPagination(event)){if(progressMessages.size()>=MAX_REPLIES)progressMessages.clear();progressMessages.put(CloudVkIngress.eventId(event),id);}
+                    event.eventId() + ":progress", ""), chartRequest(event)?"📊 Загружаю диаграммы…":"⏳ Обрабатываю…");
+            if(progressMessages.size()>=MAX_REPLIES)progressMessages.clear();progressMessages.put(CloudVkIngress.eventId(event),id);
         } catch (Exception unavailable) {
             System.err.println("VK processing notice unavailable event=" + CloudVkIngress.eventId(event));
         }
@@ -175,6 +176,7 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
 
     private void reportFailure(VkEvent event, Exception failure, Outcome outcome) {
         String id = CloudVkIngress.eventId(event);
+        boolean financialSaved=false;
         System.err.println("VK processing failed event=" + id + " type=" + failure.getClass().getSimpleName());
         // A failed PUT can have succeeded. Only report 'not saved' before any commit attempt
         // and after a fresh read confirms that no result exists.
@@ -182,14 +184,14 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
             var current = store(stateKey).load();
             if (current.isPresent()) {
                 var envelope = mapper.readValue(current.get().bytes(), Envelope.class);
-                if (envelope.replies().containsKey(id)) outcome = Outcome.SAVED;
+                if (envelope.replies().containsKey(id)){outcome = Outcome.SAVED;financialSaved=envelope.replies().get(id).financialChanged();}
             } else if (outcome != Outcome.SAVED) outcome = Outcome.UNKNOWN;
         } catch (Exception checkFailed) {
             if (outcome != Outcome.SAVED) outcome = Outcome.UNKNOWN;
         }
         String text = switch (outcome) {
-            case SAVED -> "⚠️ Данные сохранены, но отправка ответа задержалась."
-                    + " Повторно вводить операцию не нужно. Повторю отправку автоматически.";
+            case SAVED -> "⏳ Отправка задерживается. Повторяю попытку…"
+                    + (financialSaved?" Изменение сохранено.":"")+" Повторно вводить операцию не нужно.";
             case NOT_SAVED -> "⚠️ Действие пока не выполнено: изменения не сохранены."
                     + " Повторю попытку автоматически. Не вводите операцию повторно.";
             case UNKNOWN -> "⚠️ Не удалось завершить обработку. Проверяю результат сохранения."
@@ -267,7 +269,7 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
                         .orElseThrow(() -> new IOException("Financial base snapshot is missing")).bytes();
                 Result result = calculate(backup, envelope.stateBase64(), event);
                 LinkedHashMap<String, SavedReply> replies = new LinkedHashMap<>(envelope.replies());
-                replies.put(key, SavedReply.from(result.reply()).forEvent(event).withProgress(progressMessages.getOrDefault(key,0L)));
+                replies.put(key, SavedReply.from(result.reply()).forEvent(event).withFinancialChange(FinanceSnapshots.changed(envelope.stateBase64(),result.state())).withProgress(progressMessages.getOrDefault(key,0L)));
                 while (replies.size() > MAX_REPLIES) {
                     String oldestOrdinary = replies.keySet().stream()
                             .filter(candidate -> !candidate.startsWith("scheduled:")
@@ -374,6 +376,10 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
                 }
                 if(text!=null)value = new BotReply(text, Screen.CHAT_CLEAR_RESULT);
             }
+            if(reply.progressMessageId()>0&&!isPagination(event)) {
+                try{sender().edit(event,new BotReply(value.images().isEmpty()?"⏳ Почти готово…":"📊 Загружаю диаграммы…",Screen.MAIN,null,java.util.List.of()),reply.progressMessageId());}
+                catch(Exception statusUnavailable){if(statusUnavailable instanceof InterruptedException){Thread.currentThread().interrupt();throw statusUnavailable;}System.err.println("Delivery progress unavailable event="+CloudVkIngress.eventId(event));}
+            }
             long target = paginationTarget(event, value);
             if (target > 0) {
                 try { messageId = sender().edit(event, value, target); }
@@ -385,10 +391,11 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
         progressMessages.remove(CloudVkIngress.eventId(event));
     }
 
+    private static boolean chartRequest(VkEvent event){return java.util.Set.of("/report_chart","/chart_expenses","/chart_income","/chart_plan","/chart_debts","/chart_goals").contains(event.text()==null?"":event.text());}
     private static boolean isPagination(VkEvent event){String c=event.text()==null?"":event.text();return c.startsWith("/expense_chart_page/")||c.startsWith("/plan_page/")||c.startsWith("/choices/EDIT_SELECT/")||c.startsWith("/choices/HISTORY_EDIT_SELECT/")||c.equals("/history_next")||c.equals("/history_prev");}
     private void finishPageProgress(VkEvent event,SavedReply saved,BotReply value){
-        if(!isPagination(event)||saved.progressMessageId()<=0||value==null)return;
-        String status="✅ Готово · "+value.text().lines().findFirst().orElse("Страница обновлена");
+        if(saved.progressMessageId()<=0||value==null)return;
+        String status=isPagination(event)?"✅ Готово · "+value.text().lines().findFirst().orElse("Страница обновлена"):"✅ Ответ отправлен.";
         try{sender().edit(event,new BotReply(status,Screen.HISTORY,null,java.util.List.of()),saved.progressMessageId());}
         catch(Exception unavailable){
             if(unavailable instanceof InterruptedException){Thread.currentThread().interrupt();return;}
@@ -456,6 +463,7 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
     public void runAutomaticCleanup() { runAutomaticCleanup(null); }
     private void runAutomaticCleanup(ObjectStorageStateStore.Snapshot initial) {
         boolean eligible = false;
+        String lease="";int cleanupDays=0;
         try {
             var zone = ZoneId.of("Europe/Moscow");
             var instant = java.time.Instant.now();
@@ -466,19 +474,24 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
                 var root = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(Base64.getDecoder().decode(envelope.stateBase64()));
                 var settings = financeos.vk.ChatCleanupSettings.read(root);
                 if (settings.days() == 0 || settings.lastDate().equals(today)) return;
+                int attempts=settings.attemptDate().equals(today)?settings.attempts():0;
+                if(attempts>=3||(!settings.notBefore().isBlank()&&instant.isBefore(java.time.Instant.parse(settings.notBefore()))))return;
                 if (envelope.replies().values().stream().anyMatch(r -> r.event() != null && !r.delivered())) return;
                 eligible = true;
-                // Reserve this calendar day before remote deletion. A failure cannot create a retry storm.
-                new financeos.vk.ChatCleanupSettings(settings.days(), today).write(root);
+                // A bounded lease survives cold starts; lastDate records completion, not an attempt.
+                lease=java.util.UUID.randomUUID().toString();cleanupDays=settings.days();
+                new financeos.vk.ChatCleanupSettings(settings.days(),settings.lastDate(),today,attempts+1,instant.plusSeconds(300).toString(),lease).write(root);
                 var next = new Envelope(1, Base64.getEncoder().encodeToString(mapper.writeValueAsBytes(root)),
                         envelope.replies(), envelope.notified(), envelope.morningDate(), envelope.lastConversationMessageId());
                 if (!store(stateKey).save(current.etag(), mapper.writeValueAsBytes(next))) continue;
                 var check = store(stateKey).load().orElseThrow();
                 var checkEnvelope = mapper.readValue(check.bytes(), Envelope.class);
                 var checkSettings = financeos.vk.ChatCleanupSettings.read(mapper.readTree(Base64.getDecoder().decode(checkEnvelope.stateBase64())));
-                if (checkSettings.days() != settings.days() || !checkSettings.lastDate().equals(today)) return;
+                if (checkSettings.days() != settings.days() || !checkSettings.leaseId().equals(lease)) return;
                 // A fresh private-chat check is made inside the cleaner, before any delete.
                 var result = cleaner().clean(envelope.lastConversationMessageId(), instant.minus(java.time.Duration.ofDays(settings.days())));
+                boolean complete=result.refused()==0&&!result.more()&&result.blocked().isBlank();
+                finishAutomaticCleanup(cleanupDays,lease,complete);
                 if (result.refused() > 0 || result.more() || !result.blocked().isBlank()) {
                     if (chatAllowed(0)) sender().notice(new VkEvent("scheduled", groupId, ownerId, chatPeerId,
                             "auto-cleanup:" + today, ""), "⚠️ Автоочистка\n" + result.text());
@@ -491,14 +504,29 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
         } catch (Exception failure) {
             if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
             System.err.println("Automatic cleanup failed: " + safeFailure(failure));
+            if(!lease.isBlank()&&!(failure instanceof InterruptedException))try{finishAutomaticCleanup(cleanupDays,lease,false);}catch(Exception retryStateFailure){System.err.println("Cleanup retry state unavailable: "+safeFailure(retryStateFailure));}
             if (eligible && !(failure instanceof InterruptedException)) {
                 try {
                     if (chatAllowed(0)) sender().notice(new VkEvent("scheduled", groupId, ownerId, chatPeerId,
                             "auto-cleanup:" + java.time.LocalDate.now(ZoneId.of("Europe/Moscow")), ""),
-                            "⚠️ Автоочистка не завершилась. Финансовые данные сохранены. Очистку можно повторить кнопкой «Чат» → «Очистить сейчас».");
+                            "⚠️ Автоочистка не завершилась. Финансовые данные сохранены. Повторю при следующем запуске после паузы; не более трёх попыток в сутки. Ручная очистка: «Ещё» → «Настройки» → «Очистка чата» → «Очистить сейчас».");
                 } catch (Exception unavailable) { System.err.println("Cleanup notification unavailable"); }
             }
         }
+    }
+
+    private void finishAutomaticCleanup(int days,String lease,boolean complete)throws Exception{
+        for(int retry=0;retry<6;retry++){
+            var snapshot=store(stateKey).load().orElseThrow();var envelope=mapper.readValue(snapshot.bytes(),Envelope.class);
+            var root=(com.fasterxml.jackson.databind.node.ObjectNode)mapper.readTree(Base64.getDecoder().decode(envelope.stateBase64()));
+            var settings=financeos.vk.ChatCleanupSettings.read(root);
+            if(settings.days()!=days||!settings.leaseId().equals(lease))return;
+            var now=java.time.Instant.now();String today=now.atZone(ZoneId.of("Europe/Moscow")).toLocalDate().toString();
+            new financeos.vk.ChatCleanupSettings(days,complete?today:settings.lastDate(),settings.attemptDate(),settings.attempts(),complete?"":now.plusSeconds(settings.attempts()==1?60:300).toString(),"").write(root);
+            var updated=new Envelope(1,Base64.getEncoder().encodeToString(mapper.writeValueAsBytes(root)),envelope.replies(),envelope.notified(),envelope.morningDate(),envelope.lastConversationMessageId());
+            if(store(stateKey).save(snapshot.etag(),mapper.writeValueAsBytes(updated)))return;
+        }
+        throw new IOException("Cleanup completion conflict");
     }
 
     /** Called by the existing daily timer to recover callbacks whose trigger retries ran out. */
@@ -583,7 +611,8 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
 
     public record SavedReply(String text, Screen screen, String imageBase64,
                              java.util.List<financeos.vk.MenuButton> buttons,
-                             VkEvent event, boolean delivered, long messageId,long progressMessageId, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) java.util.List<String> additionalImages) {
+                             VkEvent event, boolean delivered, long messageId,long progressMessageId, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) java.util.List<String> additionalImages, boolean financialChanged) {
+        public SavedReply(String text,Screen screen,String imageBase64,java.util.List<financeos.vk.MenuButton> buttons,VkEvent event,boolean delivered,long messageId,long progressMessageId,java.util.List<String> additionalImages){this(text,screen,imageBase64,buttons,event,delivered,messageId,progressMessageId,additionalImages,false);}
         public SavedReply(String text,Screen screen,String imageBase64,java.util.List<financeos.vk.MenuButton> buttons,VkEvent event,boolean delivered,long messageId,long progressMessageId){this(text,screen,imageBase64,buttons,event,delivered,messageId,progressMessageId,null);}
         public SavedReply(String text,Screen screen,String imageBase64,java.util.List<financeos.vk.MenuButton> buttons,VkEvent event,boolean delivered,long messageId){this(text,screen,imageBase64,buttons,event,delivered,messageId,0);}
         public SavedReply(String text, Screen screen, String imageBase64,
@@ -600,12 +629,13 @@ public final class CloudVkProcessor implements Function<CloudVkProcessor.Trigger
                     reply.buttons(), null, false,0,0,reply.additionalImages().stream().map(bytes->Base64.getEncoder().encodeToString(bytes)).toList());
         }
         SavedReply forEvent(VkEvent event) {
-            return new SavedReply(text, screen, imageBase64, buttons, event, false,0,0,additionalImages);
+            return new SavedReply(text, screen, imageBase64, buttons, event, false,0,0,additionalImages,financialChanged);
         }
-        SavedReply withProgress(long id){return new SavedReply(text,screen,imageBase64,buttons,event,delivered,messageId,id,additionalImages);}
+        SavedReply withFinancialChange(boolean changed){return new SavedReply(text,screen,imageBase64,buttons,event,delivered,messageId,progressMessageId,additionalImages,changed);}
+        SavedReply withProgress(long id){return new SavedReply(text,screen,imageBase64,buttons,event,delivered,messageId,id,additionalImages,financialChanged);}
         SavedReply asDelivered() { return asDelivered(messageId); }
         SavedReply asDelivered(long id) {
-            return new SavedReply(text, screen, imageBase64, buttons, event, true, id,progressMessageId,additionalImages);
+            return new SavedReply(text, screen, imageBase64, buttons, event, true, id,progressMessageId,additionalImages,financialChanged);
         }
         BotReply toReply() {
             return text == null ? null : new BotReply(text, screen,
