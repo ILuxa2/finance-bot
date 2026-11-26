@@ -165,7 +165,7 @@ public final class LocalBotEngineTest {
         contains(send(engine, "2000; 30; оклад"), "Правило rule-1 создано");
         contains(send(engine, "/regular_pending"), "rule-1@2026-10-30");
         send(engine, "/regular_confirm");
-        contains(send(engine, "rule-1@2026-10-30"), "подтверждена");
+        contains(send(engine, "rule-1@2026-10-30"), "Проверьте");contains(send(engine,"/regular_accept"),"подтверждена");
         contains(send(engine, "/report"), "Свободные деньги · 77000.50 ₽");
         send(engine, "/undo");
         contains(send(engine, "/report"), "Свободные деньги · 75000.50 ₽");
@@ -177,7 +177,7 @@ public final class LocalBotEngineTest {
         contains(send(engine, "600; 30; Аренда; проверка"), "Правило rule-2 создано");
         contains(send(engine, "/regular_pending"), "rule-2@2026-10-30");
         send(engine, "/regular_confirm");
-        contains(send(engine, "rule-2@2026-10-30"), "подтверждена");
+        contains(send(engine, "rule-2@2026-10-30"), "Проверьте");contains(send(engine,"/regular_accept"),"подтверждена");
         if (engine.exportState().entries().stream().filter(timed ->
                 timed.entry().category().equals("Аренда")).count() != 1) {
             throw new AssertionError("Monthly payment was not recorded exactly once");

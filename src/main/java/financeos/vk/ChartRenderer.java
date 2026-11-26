@@ -19,7 +19,7 @@ public final class ChartRenderer {
     private static final int PLOT_X = 285;
     private static final int PLOT_WIDTH = 620;
     private static final Color[] COLORS = {
-            new Color(22, 125, 104), new Color(148, 181, 166)
+            new Color(175, 199, 238), new Color(132, 156, 191)
     };
 
     public byte[] png(ChartData data) { return png(data, false); }
@@ -41,13 +41,14 @@ public final class ChartRenderer {
             g.fillRect(0, 0, canvasWidth, height);
             g.setColor((dark ? new Color(19, 25, 31) : Color.WHITE));
             g.fillRoundRect(20, 20, canvasWidth - 40, height - 40, 22, 22);
+            if(dark)NightAtlas.background(g,canvasWidth,height);
             g.setColor((dark ? new Color(235, 241, 239) : new Color(15, 23, 42)));
             g.setFont(new Font("Segoe UI", Font.BOLD, 28));
             g.drawString(fit(data.title(),g.getFontMetrics(),canvasWidth-100), 50, 70);
             g.setFont(new Font("Segoe UI", Font.PLAIN, 19));
             int legendX = 50;
             for (int i = 0; i < data.series().size(); i++) {
-                g.setColor(dark ? COLORS[i].brighter() : COLORS[i]);
+                g.setColor(COLORS[i]);
                 g.fillRoundRect(legendX, 92, 17, 17, 5, 5);
                 g.setColor((dark ? new Color(184, 201, 194) : new Color(71, 85, 105)));
                 g.drawString(data.series().get(i).name(), legendX + 26, 107);
@@ -74,7 +75,7 @@ public final class ChartRenderer {
                     int width = amount.signum() == 0 ? 0
                             : Math.max(3, (int) Math.round(PLOT_WIDTH * amount.doubleValue() / max));
                     int barY = data.series().size() == 1 ? y + 12 : y + series * 23;
-                    g.setColor(dark ? COLORS[series].brighter() : COLORS[series]);
+                    g.setColor(COLORS[series]);
                     g.fillRoundRect(PLOT_X, barY, width, 18, 8, 8);
                     g.setColor((dark ? new Color(235, 241, 239) : new Color(30, 41, 59)));
                     g.setFont(new Font("Segoe UI", Font.BOLD, 18));

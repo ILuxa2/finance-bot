@@ -77,7 +77,7 @@ public final class LocalBotEngine {
     private List<String> cachedIncomeSources;
 
     private enum Pending { NONE, INCOME_CATEGORY, EXPENSE_CATEGORY, INCOME_AMOUNT,
-        EXPENSE_AMOUNT, TRANSFER_AMOUNT, DELETE_OPERATION, PLAN, DELETE_PLAN, ADD_DEBT, EDIT_DEBT, PAY_DEBT, CLOSE_DEBT,
+        EXPENSE_AMOUNT, TRANSFER_AMOUNT, DELETE_OPERATION, PLAN, DELETE_PLAN_MONTH, DELETE_PLAN_SECTION, DELETE_PLAN_CONFIRM, RECURRING_AMOUNT, RECURRING_CONFIRM, SECTION_DELETE_TARGET, CATEGORY_MERGE_TARGET, DELETE_PLAN, ADD_DEBT, EDIT_DEBT, PAY_DEBT, CLOSE_DEBT,
         ADD_GOAL, FUND_GOAL, CLOSE_GOAL, SET_LIMIT, HISTORY_DATE, HISTORY_PERIOD,
         REPORT_DATE, REPORT_PERIOD, SALARY_RULE, PAYMENT_RULE,
         CONFIRM_RULE, SKIP_RULE, DELETE_RULE, PAY_DEBT_AMOUNT, FUND_GOAL_AMOUNT, EDIT_DEBT_VALUES, PLAN_AMOUNT, PLAN_FACT_MONTH, EDIT_SELECT, HISTORY_EDIT_SELECT, EDIT_DATE, EDIT_AMOUNT, EDIT_COMMENT, EDIT_OPERATION_SECTION, EDIT_OPERATION_CATEGORY, EDIT_CONFIRM, PLAN_COPY_CONFIRM, PLAN_COPY_MONTH, PLAN_COPY_ITEM, PLAN_COPY_VALUES, CHAT_CLEAR_CONFIRM, CHAT_AUTO_CONFIRM, PLAN_EDIT_SELECT, PLAN_EDIT_NAME, PLAN_EDIT_AMOUNT, PLAN_EDIT_CONFIRM, INCOME_SECTION, EXPENSE_SECTION, SECTION_PICK, SECTION_CATEGORY_PICK, SECTION_NEW_NAME, SECTION_RENAME_NAME, CATEGORY_NEW_NAME, CATEGORY_RENAME_NAME, CATEGORY_MOVE_TARGET, ARCHIVED_CATEGORY_PICK, SECTION_CONFIRM, PLAN_SECTION_PICK, FILTER_PERIOD, FILTER_CATEGORY, FILTER_AMOUNT, FILTER_COMMENT, EDIT_DELETE_CONFIRM, QUICK_CATEGORY, QUICK_ALL_CATEGORY, REPEAT_AMOUNT, REPORT_EXPENSE_CATEGORY, REPORT_EXPENSE_SECTION, NEW_EXPENSE_PLAN, NEW_EXPENSE_INCREASE, RECEIPT_INPUT }
@@ -188,6 +188,7 @@ public final class LocalBotEngine {
         if(text.startsWith("/expense_chart_page/"))return expenseChartPage(text);
         if(text.startsWith("/plan_page/"))return planPage(text);
         if (text.startsWith("/choose/")) return choose(text);
+        if(text.startsWith("/section_suggest/"))return useSuggestedName(text);
         if (text.startsWith("/choices/")) {
             try {
                 String[] fields = text.split("/");
@@ -205,6 +206,14 @@ public final class LocalBotEngine {
                     + due + ". Нажмите «⏳ Ожидают» в главном меню."));
         }
         if (text.equals("/back")) {
+            if(navigation.current()==Screen.APPEARANCE_ASSET||navigation.current()==Screen.APPEARANCE_GUIDE){while(navigation.current()!=Screen.APPEARANCE&&navigation.current()!=Screen.MAIN)navigation.back();return appearance();}
+            if(pending==Pending.DELETE_PLAN_CONFIRM)return deletePlanSection(sectionDraft().section());
+            if(pending==Pending.DELETE_PLAN)return deletePlanMonth(sectionDraft().month());
+            if(pending==Pending.DELETE_PLAN_SECTION)return deletePlanMonths();
+            if(pending==Pending.RECURRING_AMOUNT)return recurringPreview();
+            if(pending==Pending.RECURRING_CONFIRM)return regularPending();
+            if(pending==Pending.SECTION_DELETE_TARGET)return sectionCard(sectionDraft().section());
+            if(pending==Pending.CATEGORY_MERGE_TARGET)return categoryCard(sectionDraft().category());
             if(pending==Pending.REPORT_EXPENSE_CATEGORY&&!reportSection.isBlank())return reportExpenseSections();
             if(pending==Pending.REPORT_EXPENSE_CATEGORY||pending==Pending.REPORT_EXPENSE_SECTION){pending=Pending.NONE;return open(Screen.REPORT,selectedReportText());}
             if(pending==Pending.EDIT_OPERATION_CATEGORY) {
@@ -212,7 +221,7 @@ public final class LocalBotEngine {
                 return answer("Выберите раздел кнопкой или напишите название категории.");
             }
             if (quickPending()) return cancelQuick();
-            if(navigation.current()==Screen.HISTORY && historyKind.equals("EXPENSE") && !historyCategory.isBlank())return reportExpenseCategories();
+            if(navigation.current()==Screen.HISTORY && historyKind.equals("EXPENSE") && !historyCategory.isBlank()){navigation.back();return reportExpenseCategories();}
             if(pending==Pending.INCOME_AMOUNT)return beginCategory(EntryKind.INCOME);
             if(pending==Pending.INCOME_CATEGORY||pending==Pending.INCOME_SECTION){pending=Pending.NONE;pendingCategory="";navigation.main();return answer("🏠 Главное меню\nЧто хотите сделать?");}
             if(categorySections.enabled()&&(pending==Pending.INCOME_AMOUNT||pending==Pending.EXPENSE_AMOUNT)) {
@@ -227,6 +236,7 @@ public final class LocalBotEngine {
             pending = Pending.NONE;
             pendingCategory = "";
             navigation.back();
+            if(navigation.current()==Screen.HISTORY_EDITOR_LIST&&navigation.state().backStack().contains(Screen.HISTORY)){navigation.back();editorContext=false;return showFiltered();}
             if (navigation.current() == Screen.EDITOR_LIST || navigation.current() == Screen.HISTORY_EDITOR_LIST) {
                 return beginEditOperations(navigation.current() == Screen.HISTORY_EDITOR_LIST);
             }
@@ -299,7 +309,7 @@ public final class LocalBotEngine {
             case "/edit_category" -> beginOperationMove();
             case "/edit_comment" -> beginEditField(financeos.core.OperationEditor.Field.COMMENT);
             case "/edit_confirm" -> confirmOperationEdit();
-            case "/edit_cancel" -> returnToOperationCard();
+            case "/edit_cancel" -> editorContext&&navigation.state().backStack().contains(Screen.HISTORY)?returnToOperationList("Правка отменена. Фильтры и страница сохранены."):returnToOperationCard();
             case "/add" -> open(Screen.ADD, "➕ Добавить операцию. Выберите тип.");
             case "/income" -> beginCategory(EntryKind.INCOME);
             case "/expense" -> beginCategory(EntryKind.EXPENSE);
@@ -339,12 +349,15 @@ public final class LocalBotEngine {
             case "/section_pick" -> {pending=Pending.SECTION_PICK;navigation.open(Screen.OPERATION_SECTIONS);yield answer("Выберите раздел для управления.");}
             case "/section_new" -> {saveSectionDraft(new SectionDraft("","","","",YearMonth.from(now()).toString(),"",""));yield sectionInput(Pending.SECTION_NEW_NAME,"Введите название нового раздела, до 40 символов.");}
             case "/section_rename" -> sectionInput(Pending.SECTION_RENAME_NAME,"Введите новое название раздела.");
-            case "/section_delete" -> prepareSectionChange("DELETE_SECTION","");
+            case "/section_delete" -> beginSectionDelete();
             case "/section_categories" -> {pending=Pending.SECTION_CATEGORY_PICK;navigation.open(Screen.OPERATION_SECTIONS);yield answer("Выберите категорию раздела «"+sectionDraft().section()+"».");}
             case "/category_new" -> sectionInput(Pending.CATEGORY_NEW_NAME,"Введите название новой категории в разделе «"+sectionDraft().section()+"».");
             case "/category_rename" -> sectionInput(Pending.CATEGORY_RENAME_NAME,"Введите новое название категории. История будет показана под новым названием.");
             case "/category_move" -> {pending=Pending.CATEGORY_MOVE_TARGET;navigation.open(Screen.OPERATION_SECTIONS);yield answer("Выберите новый раздел категории.");}
-            case "/category_delete" -> prepareSectionChange("ARCHIVE_CATEGORY","");
+            case "/category_delete" -> categoryDelete();
+            case "/category_archive" -> prepareSectionChange("ARCHIVE_CATEGORY","");
+            case "/category_merge" -> mergeCategoryPicker(false);
+            case "/category_operations" -> categoryOperations();
             case "/category_archive_list" -> {pending=Pending.ARCHIVED_CATEGORY_PICK;navigation.open(Screen.OPERATION_SECTIONS);yield answer("Выберите категорию для восстановления из архива.");}
             case "/section_confirm" -> confirmSectionChange(beforeCommand);
             case "/plan_sections" -> planSections();
@@ -380,8 +393,11 @@ public final class LocalBotEngine {
             case "/plan_fact_month" -> begin(Pending.PLAN_FACT_MONTH, Screen.PLAN_FACT_MONTH,
                     "Выберите месяц кнопкой или введите любой месяц в формате ГГГГ-ММ, например 2026-10.");
             case "/add_plan" -> beginPlan();
-            case "/delete_plan" -> begin(Pending.DELETE_PLAN, Screen.PLANS,
-                    "Введите категорию плана, добавленного в этом локальном запуске.");
+            case "/delete_plan" -> deletePlanMonths();
+            case "/delete_plan_section_all" -> beforeCommand==Pending.DELETE_PLAN?previewPlanDelete("",true):answer("Выберите раздел плана заново.");
+            case "/delete_plan_confirm" -> confirmPlanDelete(beforeCommand);
+            case "/regular_accept" -> acceptRecurring(beforeCommand);
+            case "/regular_amount" -> beforeCommand==Pending.RECURRING_CONFIRM?begin(Pending.RECURRING_AMOUNT,Screen.RECURRING_PENDING,"Введите сумму этой операции. Дробная часть · через точку."):answer("Сначала выберите операцию.");
             case "/analytics" -> open(Screen.ANALYTICS, "📈 Аналитика. Выберите действие.");
             case "/history" -> open(Screen.HISTORY, "📜 История операций. Выберите период.");
             case "/history_all" -> history(null, null);
@@ -424,6 +440,10 @@ public final class LocalBotEngine {
             case "/health" -> open(Screen.ANALYTICS, LocalBotViews.financialHealth(combined(), now()));
             case "/insights" -> open(Screen.ANALYTICS, LocalBotViews.insights(combined(), now()));
             case "/settings" -> open(Screen.SETTINGS, "⚙️ Ещё · выберите раздел.");
+            case "/appearance" -> appearance();
+            case "/appearance_wallpaper" -> appearanceImage(false);
+            case "/appearance_bubbles" -> appearanceImage(true);
+            case "/appearance_guide" -> appearanceGuide();
             case "/preferences" -> open(Screen.PREFERENCES, "⚙️ Настройки · выберите раздел.");
             case "/feedback" -> answer("Обратная связь будет доступна после подключения приёма обращений. Сейчас обращение не отправлено.");
             case "/regular" -> open(Screen.RECURRING,
@@ -614,7 +634,13 @@ public final class LocalBotEngine {
             case TRANSFER_AMOUNT -> addTransfer(text);
             case DELETE_OPERATION -> deleteOperation(text);
             case PLAN -> addPlan(text);
-            case DELETE_PLAN -> deletePlan(text);
+            case DELETE_PLAN -> previewPlanDelete(text,false);
+            case DELETE_PLAN_MONTH -> deletePlanMonth(text);
+            case DELETE_PLAN_SECTION -> deletePlanSection(text);
+            case DELETE_PLAN_CONFIRM, RECURRING_CONFIRM -> answer("Подтвердите действие кнопкой.");
+            case RECURRING_AMOUNT -> editRecurringAmount(text);
+            case SECTION_DELETE_TARGET -> choiceValues().contains(text)?prepareSectionChange("DELETE_SECTION",text):answer("Выберите раздел-получатель.");
+            case CATEGORY_MERGE_TARGET -> choiceValues().contains(text)?prepareSectionChange("MERGE_CATEGORY",text):answer("Выберите категорию-получателя.");
             case ADD_DEBT -> addDebt(text);
             case EDIT_DEBT -> editDebt(text);
             case PAY_DEBT -> payDebt(text);
@@ -625,7 +651,7 @@ public final class LocalBotEngine {
             case SET_LIMIT -> setLimit(text);
             case SALARY_RULE -> addRecurring(text, EntryKind.INCOME);
             case PAYMENT_RULE -> addRecurring(text, EntryKind.EXPENSE);
-            case CONFIRM_RULE -> decideRecurring(text, true);
+            case CONFIRM_RULE -> previewRecurring(text);
             case SKIP_RULE -> decideRecurring(text, false);
             case DELETE_RULE -> deleteRecurring(text);
             case HISTORY_DATE -> {
@@ -791,7 +817,7 @@ public final class LocalBotEngine {
         var changes=new ArrayList<financeos.core.PlanEdit>();
         for(var line:new financeos.core.BudgetService().breakdown(month,manualData().plans(),PlanFactView.entries(manualData(),now())))if(sectionOf(line.category(),month).equals(d.section())&&!debtCategory(line.category())&&left.signum()>0){var take=line.remaining().min(left);if(take.signum()>0){changes.add(new financeos.core.PlanEdit(month,line.category(),line.category(),line.planned().subtract(take),true));left=left.subtract(take);}}
         if(left.signum()>0){pending=Pending.NEW_EXPENSE_PLAN;return answer("В плане раздела недостаточно свободного остатка: не хватает "+PlanFactView.money(left)+". Увеличьте план или выберите «Не планировать». Расход пока не сохранён.");}
-        BigDecimal before=sectionPlan(d.section());undo.remember(snapshot());planEdits.addAll(changes);localPlans.add(new BudgetPlan(month,d.category(),amount.max(increase)));
+        BigDecimal before=sectionPlan(d.section());undo.remember(snapshot());planEdits.addAll(changes);reviveDeletedPlan(month,d.category(),amount.max(increase));localPlans.add(new BudgetPlan(month,d.category(),amount.max(increase)));
         recordNewCategoryExpense(d);
         return answer("✅ Расход сохранён · "+PlanFactView.money(amount)+" · "+d.category()+"\nПлан раздела был · "+PlanFactView.money(before)+"\nПрибавка · "+PlanFactView.money(increase)+"\nПлан стал · "+PlanFactView.money(before.add(increase))+"\nПри включении в текущий план сумма перераспределена из свободных остатков категорий раздела.\nДля отмены нажмите «Отменить».");
     }
@@ -864,6 +890,7 @@ public final class LocalBotEngine {
             if (exists) return answer("Для этой категории план на месяц уже есть. Дубликат не создан.");
             String category = categoryCatalog().ensure(effectiveCategory(draft.description(), month));
             undo.remember(snapshot());
+            reviveDeletedPlan(month,category,draft.amount());
             localPlans.add(new BudgetPlan(month, category, draft.amount()));
             pending = Pending.NONE;
             return answer("План «" + category + "» · " + money(draft.amount())
@@ -873,6 +900,29 @@ public final class LocalBotEngine {
                     + " Дробную часть пишите через точку.");
         }
     }
+
+            private List<MenuButton> appearanceButtons(){return List.of(new MenuButton("🖼 Фон для чата","/appearance_wallpaper"),new MenuButton("💬 Фон сообщений","/appearance_bubbles"),new MenuButton("📖 Как установить","/appearance_guide"),new MenuButton("🎨 Тема диаграмм","/chart_theme"),new MenuButton("⬅️ Назад","/back"),new MenuButton("🏠 Меню","/start"));}
+    private Optional<BotReply> appearance(){pending=Pending.NONE;navigation.open(Screen.APPEARANCE);return Optional.of(new BotReply("🎨 Оформление · Ночной атлас\nКарточки и диаграммы используют выбранную тему. Фон чата и стиль пузырьков устанавливаются вручную в VK.",navigation.current(),null,appearanceButtons()));}
+    private Optional<BotReply> appearanceImage(boolean bubbles){pending=Pending.NONE;navigation.open(Screen.APPEARANCE_ASSET);return Optional.of(new BotReply(bubbles?"💬 Ночной атлас · образец сообщений. Цвет пузырьков выбирается в оформлении приложения VK; бот не может применить его автоматически.":"🖼 Ночной атлас · сохраните изображение и выберите его фоном беседы в VK. Настройка выполняется вручную.",navigation.current(),bubbles?NightAtlas.bubbles():NightAtlas.wallpaper(),appearanceButtons()));}
+    private Optional<BotReply> appearanceGuide(){pending=Pending.NONE;navigation.open(Screen.APPEARANCE_GUIDE);return Optional.of(new BotReply("📖 Установка оформления\n1. Сохраните изображение из «Фон для чата».\n2. Откройте оформление беседы в вашем приложении VK и выберите фон из галереи.\n3. Выберите подходящий тёмный стиль сообщений, если он доступен.\nНазвания пунктов и доступность настройки зависят от версии VK. Бот не меняет оформление приложения вместо вас.",navigation.current(),null,appearanceButtons()));}
+
+    private void reviveDeletedPlan(YearMonth month,String category,BigDecimal amount){if(planEdits.stream().anyMatch(e->e.deleted()&&e.month().equals(month)&&categoryKey(categorySections.canonical(e.source())).equals(categoryKey(category))))planEdits.add(new financeos.core.PlanEdit(month,category,category,amount,true));}
+    private Optional<BotReply> deletePlanMonths(){saveSectionDraft(new SectionDraft("","","","",YearMonth.from(now()).toString(),"DELETE_PLAN",""));return begin(Pending.DELETE_PLAN_MONTH,Screen.PLANS,"🗑 Удалить план\nВыберите месяц или введите ГГГГ-ММ. Категории и операции сохранятся.");}
+    private List<BudgetPlan> deletablePlans(YearMonth month){return editablePlans(month);}
+    private Optional<BotReply> deletePlanMonth(String value){try{var month=YearMonth.parse(value);saveSectionDraft(new SectionDraft("","","","",month.toString(),"DELETE_PLAN",""));pending=Pending.DELETE_PLAN_SECTION;return answer("📂 Выберите раздел плана · "+month+(deletablePlans(month).isEmpty()?"\nПланов для удаления нет. Кредитные строки меняются в карточках долгов.":""));}catch(RuntimeException e){return answer("Введите месяц · ГГГГ-ММ.");}}
+    private Optional<BotReply> deletePlanSection(String value){var d=sectionDraft();if(deletablePlans(YearMonth.parse(d.month())).stream().noneMatch(p->sectionOf(p.category(),p.month()).equals(value)))return answer("Выберите раздел кнопкой.");saveSectionDraft(new SectionDraft(value,"","","",d.month(),"DELETE_PLAN",""));pending=Pending.DELETE_PLAN;return answer("🗑 Выберите категорию · "+d.month()+" · "+value);}
+    private Optional<BotReply> previewPlanDelete(String category,boolean whole){var d=sectionDraft();var month=YearMonth.parse(d.month());var selected=deletablePlans(month).stream().filter(p->sectionOf(p.category(),month).equals(d.section())).filter(p->whole||categoryKey(p.category()).equals(categoryKey(category))).toList();if(selected.isEmpty())return answer("План уже изменился или отсутствует. Выберите месяц заново.");saveSectionDraft(new SectionDraft(d.section(),whole?"":selected.getFirst().category(),whole?"DELETE_ALL":"DELETE_ONE","",d.month(),"DELETE_PLAN",planEditor.fingerprint(manualData().plans(),month)));pending=Pending.DELETE_PLAN_CONFIRM;return open(Screen.SECTION_CONFIRM,"🗑 Удалить план · "+d.month()+"\nРаздел · "+d.section()+"\nКатегорий · "+selected.size()+"\nСумма · "+money(selected.stream().map(BudgetPlan::amount).reduce(BigDecimal.ZERO,BigDecimal::add))+" ₽\nКатегории и операции сохранятся. Можно отменить всё действие.");}
+    private Optional<BotReply> confirmPlanDelete(Pending before){var d=sectionDraft();if(before!=Pending.DELETE_PLAN_CONFIRM||!d.kind().equals("DELETE_PLAN"))return answer("Нет плана для подтверждения.");var month=YearMonth.parse(d.month());if(!d.expected().equals(planEditor.fingerprint(manualData().plans(),month)))return answer("План изменился. Выберите его заново.");var selected=deletablePlans(month).stream().filter(p->sectionOf(p.category(),month).equals(d.section())).filter(p->d.action().equals("DELETE_ALL")||categoryKey(p.category()).equals(categoryKey(d.category()))).toList();if(selected.isEmpty())return answer("План уже удалён.");undo.remember(snapshot());for(var p:selected)planEdits.add(new financeos.core.PlanEdit(month,p.category(),p.category(),BigDecimal.ZERO,true,true));pending=Pending.NONE;return answerWithUndo("✅ План удалён · "+month+"\nКатегорий · "+selected.size()+". Категории, история и другие месяцы сохранены.");}
+    private Optional<BotReply> answerWithUndo(String text){return Optional.of(new BotReply(text,navigation.current(),null,List.of(new MenuButton("↩️ Отменить изменение","/undo"),new MenuButton("🏠 Меню","/start"))));}
+    private Optional<BotReply> previewRecurring(String code){var item=recurring.pendingThrough(now().toLocalDate()).stream().filter(o->o.code().equals(code)).findFirst();if(item.isEmpty())return answer("Операция уже подтверждена или отсутствует.");var o=item.get();saveSectionDraft(new SectionDraft("",code,"RECURRING",o.rule().amount().toPlainString(),o.date().toString(),"RECURRING",o.rule().toString()));return recurringPreview();}
+    private Optional<BotReply> recurringPreview(){var d=sectionDraft();pending=Pending.RECURRING_CONFIRM;navigation.open(Screen.RECURRING_PENDING);return Optional.of(new BotReply("⏳ Проверьте операцию · "+d.category()+"\nСумма · "+money(Money.of(d.value()))+" ₽\nБудущая сумма регулярного правила не меняется.",navigation.current(),null,List.of(new MenuButton("✅ Подтвердить","/regular_accept"),new MenuButton("✏️ Изменить сумму","/regular_amount"),new MenuButton("⬅️ Назад","/regular_pending"),new MenuButton("🏠 Меню","/start"))));}
+    private Optional<BotReply> editRecurringAmount(String value){try{var amount=positiveMoney(value);var d=sectionDraft();saveSectionDraft(new SectionDraft(d.section(),d.category(),d.action(),amount.toPlainString(),d.month(),d.kind(),d.expected()));return recurringPreview();}catch(RuntimeException invalid){return answer("Введите положительную сумму. Дробная часть · через точку.");}}
+    private Optional<BotReply> acceptRecurring(Pending before){var d=sectionDraft();if(before!=Pending.RECURRING_CONFIRM||!d.kind().equals("RECURRING"))return answer("Сначала выберите ожидаемую операцию.");var found=recurring.pendingThrough(now().toLocalDate()).stream().filter(o->o.code().equals(d.category())).findFirst();if(found.isEmpty()||!found.get().rule().toString().equals(d.expected()))return answer("Правило изменилось или операция уже принята. Откройте «Ожидают» заново.");return decideRecurringAmount(d.category(),Money.of(d.value()));}
+    private Optional<BotReply> decideRecurringAmount(String code,BigDecimal amount){undo.remember(snapshot());var occurrence=recurring.decide(code,now().toLocalDate(),true);var rule=occurrence.rule();var at=now();localEntries.add(new LegacyUserData.TimedEntry(at,new LedgerEntry("local-"+nextEntryId++,at.toLocalDate(),rule.kind(),amount,categorySections.canonical(rule.category()),rule.description(),false)));pending=Pending.NONE;return answerWithUndo("✅ Регулярная операция подтверждена · "+money(amount)+" ₽\nСумма будущего правила сохранена · "+money(rule.amount())+" ₽");}
+    private Optional<BotReply> beginSectionDelete(){var d=sectionDraft();if(categorySections.allSections().stream().noneMatch(n->n.equals(d.section())))return answer("Выберите раздел.");if(d.section().equals(financeos.core.CategorySections.OTHER))return answer("Прочее — системный раздел нераспределённых категорий.");if(categoryCatalog().all().stream().anyMatch(c->categorySections.section(c).equals(d.section()))){pending=Pending.SECTION_DELETE_TARGET;return answer("🗑 Удалить раздел «"+d.section()+"»\nВыберите раздел-получатель всех категорий, планов и истории.");}return prepareSectionChange("DELETE_SECTION","");}
+    private Optional<BotReply> mergeCategoryPicker(boolean deleting){var d=sectionDraft();saveSectionDraft(new SectionDraft(d.section(),d.category(),deleting?"DELETE_CATEGORY":"MERGE_CATEGORY","",d.month(),"",sectionsFingerprint()));pending=Pending.CATEGORY_MERGE_TARGET;return answer("Выберите категорию-получателя. История сохранится; планы сложатся по месяцам. Исходная категория будет объединена с выбранной.");}
+    private Optional<BotReply> categoryDelete(){var d=sectionDraft();String key=categoryKey(d.category());boolean used=manualData().transactions().stream().anyMatch(t->categoryKey(t.entry().category()).equals(key))||manualData().plans().stream().anyMatch(p->categoryKey(p.category()).equals(key))||recurring.state().rules().stream().anyMatch(r->categoryKey(categorySections.canonical(r.category())).equals(key));if(used)return mergeCategoryPicker(true);return prepareSectionChange("ARCHIVE_CATEGORY","");}
+    private Optional<BotReply> categoryOperations(){var d=sectionDraft();historyFrom=historyThrough=null;historyCategory=d.category();historyKind=incomeSource(d.category())?"INCOME":"EXPENSE";historyQuery=historyAmount="";historyPage=0;editorContext=false;return showFiltered();}
 
     private Optional<BotReply> deletePlan(String text) {
         String key = categoryKey(text);
@@ -1209,7 +1259,8 @@ public final class LocalBotEngine {
     private Optional<BotReply> report() {
         reportFrom=reportThrough=null;reportSection="";
         pending = Pending.NONE;
-        return open(Screen.REPORT, categorySections.enabled()?SectionViews.report(combined(),categorySections,planEdits,now(),true):LocalBotViews.report(combined(), now()));
+        var reply=open(Screen.REPORT, categorySections.enabled()?SectionViews.report(combined(),categorySections,planEdits,now(),true):LocalBotViews.report(combined(), now()));
+        return reply.map(r->new BotReply(r.text(),r.screen(),NightAtlas.summary(r.text(),chartTheme.equals("dark")),r.buttons()));
     }
 
     private Optional<BotReply> reportWithChart() {
@@ -1309,6 +1360,7 @@ public final class LocalBotEngine {
         var images=new ArrayList<byte[]>();
         if(!pages.isEmpty())images.add(new GroupedExpenseChart().png(pages,chartTheme.equals("dark")));
         if(screen==Screen.REPORT) {
+            images.addFirst(NightAtlas.summary(text,chartTheme.equals("dark")));
             var income=chartService.prepare(ChartKind.INCOME,data,now());
             if(!income.labels().isEmpty())images.add(chartRenderer.png(income,chartTheme.equals("dark")));
             images.add(chartRenderer.png(monthComparison(data),chartTheme.equals("dark")));
@@ -1384,7 +1436,7 @@ public final class LocalBotEngine {
     private String effectiveCategory(String category,YearMonth month) {
         String value=planEditor.resolve(planEdits.stream().filter(e->!e.canonical()).toList(),month,category);
         value=categorySections.canonical(value);
-        return planEditor.resolve(planEdits.stream().filter(financeos.core.PlanEdit::canonical).map(e->new financeos.core.PlanEdit(e.month(),categorySections.canonical(e.source()),categorySections.canonical(e.category()),e.amount(),true)).toList(),month,value);
+        return planEditor.resolve(planEdits.stream().filter(financeos.core.PlanEdit::canonical).map(e->new financeos.core.PlanEdit(e.month(),categorySections.canonical(e.source()),categorySections.canonical(e.category()),e.amount(),true,e.deleted())).toList(),month,value);
     }
 
     private String categoryKey(String value) {
@@ -1448,22 +1500,29 @@ public final class LocalBotEngine {
     private String pruneFingerprint(){return sectionsFingerprint()+"|"+new java.util.TreeSet<>(usedExpenseCategories());}
     private Optional<BotReply> previewUnusedCategories(){var next=prunedCategories();long count=next.archived().size()-categorySections.archived().size();saveSectionDraft(new SectionDraft("","","PRUNE","",YearMonth.from(now()).toString(),"",pruneFingerprint()));pending=Pending.NONE;return open(Screen.CATEGORY_PRUNE,"Убрать неиспользуемые категории · "+count+"?\nПроверены расходы за всё время, планы всех месяцев, активные долги и регулярные платежи. История и суммы сохранятся; категории попадут в архив, пустые разделы будут убраны.");}
     private Optional<BotReply> confirmUnusedCategories(){if(navigation.current()!=Screen.CATEGORY_PRUNE||!sectionDraft().action().equals("PRUNE")||!sectionDraft().expected().equals(pruneFingerprint()))return answer("Данные изменились. Запустите проверку заново.");var next=prunedCategories();if(!next.equals(categorySections)){undo.remember(snapshot());categorySections=next;}return sectionsHome();}
+    private boolean similarName(String a,String b){a=categoryKey(a).replace('ё','е');b=categoryKey(b).replace('ё','е');if(a.equals(b)||a.contains(b)||b.contains(a))return true;int[] row=new int[b.length()+1];for(int j=0;j<row.length;j++)row[j]=j;for(int i=1;i<=a.length();i++){int[] next=new int[b.length()+1];next[0]=i;for(int j=1;j<next.length;j++)next[j]=Math.min(Math.min(next[j-1]+1,row[j]+1),row[j-1]+(a.charAt(i-1)==b.charAt(j-1)?0:1));row=next;}return row[b.length()]<=Math.max(1,Math.max(a.length(),b.length())/5);}
+    private List<String> suggestedNames(String action,String value){return (action.equals("CREATE_SECTION")?categorySections.allSections():categories().stream().filter(c->!incomeSource(c)).toList()).stream().filter(n->similarName(n,value)).limit(3).toList();}
+    private Optional<BotReply> suggestCreation(String action,String value){var names=suggestedNames(action,value);if(names.isEmpty())return Optional.empty();var d=sectionDraft();saveSectionDraft(new SectionDraft(d.section(),d.category(),action,value,d.month(),d.kind(),sectionsFingerprint()));pending=Pending.SECTION_CONFIRM;navigation.open(Screen.SECTION_CONFIRM);var buttons=new ArrayList<MenuButton>();for(int i=0;i<names.size();i++)buttons.add(new MenuButton("Использовать · "+(names.get(i).codePointCount(0,names.get(i).length())>23?names.get(i).substring(0,names.get(i).offsetByCodePoints(0,22))+"…":names.get(i)),"/section_suggest/"+i));boolean exact=names.stream().anyMatch(n->categoryKey(n).equals(categoryKey(value)));if(!exact)buttons.add(new MenuButton("Создать отдельно","/section_confirm"));buttons.add(new MenuButton("⬅️ Назад","/sections"));buttons.add(new MenuButton("🏠 Меню","/start"));return Optional.of(new BotReply("Похожее название уже существует.\nВведено · "+value+"\n"+String.join("\n",names)+"\nМожно выбрать существующее"+(exact?".":" или создать отдельное."),Screen.SECTION_CONFIRM,null,buttons));}
+    private Optional<BotReply> useSuggestedName(String command){try{var d=sectionDraft();if(pending!=Pending.SECTION_CONFIRM||!d.action().startsWith("CREATE_")||!d.expected().equals(sectionsFingerprint()))return answer("Подсказка устарела. Введите название заново.");var names=suggestedNames(d.action(),d.value());int index=Integer.parseInt(command.substring(command.lastIndexOf('/')+1));if(index<0||index>=names.size())return answer("Выберите подсказку кнопкой.");String name=names.get(index);if(d.action().equals("CREATE_SECTION"))return sectionCard(name);saveSectionDraft(new SectionDraft(categorySections.section(name),"","","",d.month(),"",""));return categoryCard(name);}catch(RuntimeException e){return answer("Подсказка устарела. Введите название заново.");}}
+
     private Optional<BotReply> sectionsHome(){pending=Pending.NONE;saveSectionDraft(new SectionDraft("","","","",YearMonth.from(now()).toString(),"",""));var text=new StringBuilder("📂 Разделы и категории");for(var name:categorySections.allSections()){long count=categories().stream().filter(c->sectionOf(c,YearMonth.from(now())).equals(name)).count();text.append("\n").append(name).append(" · ").append(count);}return open(Screen.SECTIONS,text.toString());}
     private Optional<BotReply> sectionCard(String name){var chosen=categorySections.allSections().stream().filter(n->categoryKey(n).equals(categoryKey(name))).findFirst();if(chosen.isEmpty())return answer("Выберите существующий раздел.");saveSectionDraft(new SectionDraft(chosen.get(),"","","",YearMonth.from(now()).toString(),"",""));pending=Pending.NONE;return open(Screen.SECTION_CARD,"📂 "+chosen.get()+"\nСоздавайте категории, переименовывайте раздел или удаляйте его с подтверждением.");}
     private Optional<BotReply> categoryCard(String name){String category=categorySections.canonical(name);var d=sectionDraft();if(!categoryKnown(category)||categorySections.hidden(category)||!sectionOf(category,YearMonth.from(now())).equals(d.section()))return answer("Выберите категорию этого раздела.");saveSectionDraft(new SectionDraft(d.section(),category,"","",d.month(),"",""));pending=Pending.NONE;return open(Screen.SECTION_CATEGORY_CARD,"Категория · "+category+"\nРаздел · "+d.section());}
     private Optional<BotReply> sectionInput(Pending input,String prompt){return begin(input,Screen.SECTION_INPUT,prompt);}
     private Optional<BotReply> prepareSectionChange(String action,String value){try{
         var d=sectionDraft();value=value.strip().replaceAll("\\s+"," ");if(!action.equals("CREATE_SECTION")&&!action.equals("RESTORE_CATEGORY")&&(d.section().isBlank()||!categorySections.allSections().contains(d.section())))return answer("Сначала выберите раздел.");
-        if(java.util.Set.of("RENAME_CATEGORY","MOVE_CATEGORY","ARCHIVE_CATEGORY").contains(action)&&(d.category().isBlank()||!categoryKnown(d.category())))return answer("Сначала выберите категорию.");if((action.contains("CREATE")||action.contains("RENAME"))&&(value.isBlank()||value.codePointCount(0,value.length())>(action.endsWith("SECTION")?40:80)))return answer("Название слишком длинное или пустое.");
+        if(java.util.Set.of("RENAME_CATEGORY","MOVE_CATEGORY","ARCHIVE_CATEGORY","MERGE_CATEGORY").contains(action)&&(d.category().isBlank()||!categoryKnown(d.category())))return answer("Сначала выберите категорию.");if((action.contains("CREATE")||action.contains("RENAME"))&&(value.isBlank()||value.codePointCount(0,value.length())>(action.endsWith("SECTION")?40:80)))return answer("Название слишком длинное или пустое.");
+        if(action.equals("CREATE_CATEGORY")||action.equals("CREATE_SECTION")){var suggestion=suggestCreation(action,value);if(suggestion.isPresent())return suggestion;}
         if((action.equals("CREATE_CATEGORY")||action.equals("RENAME_CATEGORY"))&&categoryKnown(value)&&!categoryKey(categorySections.canonical(value)).equals(categoryKey(d.category())))return answer("Такая категория уже существует, в том числе возможно в архиве. Выберите другое название.");
         saveSectionDraft(new SectionDraft(d.section(),d.category(),action,value,d.month(),d.kind(),sectionsFingerprint()));pending=Pending.SECTION_CONFIRM;
-        String detail=switch(action){case "DELETE_SECTION"->"Удалить раздел «"+d.section()+"»? Категории перейдут в Прочее.";case "ARCHIVE_CATEGORY"->"Убрать «"+d.category()+"» из выбора новых операций? История и планы сохранятся.";case "MOVE_CATEGORY"->"Перенести «"+d.category()+"» в раздел «"+value+"»?";case "RESTORE_CATEGORY"->"Восстановить категорию «"+d.category()+"»?";default->"Сохранить изменение · "+(d.category().isBlank()?d.section():d.category())+" → "+value+"?";};
+        String detail=switch(action){case "DELETE_SECTION"->"Удалить раздел «"+d.section()+"»? Категории, планы и история перейдут в «"+(value.isBlank()?financeos.core.CategorySections.OTHER:value)+"».";case "MERGE_CATEGORY"->"Объединить «"+d.category()+"» с «"+value+"»? Операции сохранятся, планы сложатся по месяцам. Исходная категория исчезнет.";case "ARCHIVE_CATEGORY"->"Убрать «"+d.category()+"» из выбора новых операций? История и планы сохранятся.";case "MOVE_CATEGORY"->"Перенести «"+d.category()+"» в раздел «"+value+"»?";case "RESTORE_CATEGORY"->"Восстановить категорию «"+d.category()+"»?";default->"Сохранить изменение · "+(d.category().isBlank()?d.section():d.category())+" → "+value+"?";};
         return open(Screen.SECTION_CONFIRM,detail+"\nСуммы и даты операций не меняются. Изменение можно отменить.");
     }catch(RuntimeException invalid){return answer("Откройте управление разделами заново.");}}
-    private Optional<BotReply> confirmSectionChange(Pending before){if(before!=Pending.SECTION_CONFIRM||navigation.current()!=Screen.SECTION_CONFIRM)return answer("Нет изменения для подтверждения.");try{
+    private Optional<BotReply> confirmSectionChange(Pending before){if(before==Pending.DELETE_PLAN_CONFIRM)return confirmPlanDelete(before);if(before!=Pending.SECTION_CONFIRM||navigation.current()!=Screen.SECTION_CONFIRM)return answer("Нет изменения для подтверждения.");try{
         var d=sectionDraft();if(!d.expected().equals(sectionsFingerprint()))return answer("Разделы изменились. Откройте изменение заново.");
         if((d.action().equals("CREATE_CATEGORY")||d.action().equals("RENAME_CATEGORY"))&&categoryKnown(d.value())&&!categoryKey(categorySections.canonical(d.value())).equals(categoryKey(d.category())))return answer("Категория уже существует. Изменение не сохранено.");
-        var next=switch(d.action()){case "CREATE_SECTION"->categorySections.create(d.value());case "RENAME_SECTION"->categorySections.renameSection(d.section(),d.value());case "DELETE_SECTION"->categorySections.deleteSection(d.section());case "CREATE_CATEGORY"->categorySections.assign(d.value(),d.section());case "RENAME_CATEGORY"->categorySections.renameCategory(d.category(),d.value(),d.section());case "MOVE_CATEGORY"->categorySections.assign(d.category(),d.value());case "ARCHIVE_CATEGORY"->categorySections.archive(d.category());case "RESTORE_CATEGORY"->categorySections.assign(d.category(),categorySections.section(d.category()));default->throw new IllegalArgumentException("Неизвестное действие.");};
+        var next=switch(d.action()){case "CREATE_SECTION"->categorySections.create(d.value());case "RENAME_SECTION"->categorySections.renameSection(d.section(),d.value());case "DELETE_SECTION"->categorySections.deleteSection(d.section(),d.value().isBlank()?financeos.core.CategorySections.OTHER:d.value());case "CREATE_CATEGORY"->categorySections.assign(d.value(),d.section());case "RENAME_CATEGORY"->categorySections.renameCategory(d.category(),d.value(),d.section());case "MOVE_CATEGORY"->categorySections.assign(d.category(),d.value());case "MERGE_CATEGORY"->categorySections.renameCategory(d.category(),d.value(),categorySections.section(d.value()));case "ARCHIVE_CATEGORY"->categorySections.archive(d.category());case "RESTORE_CATEGORY"->categorySections.assign(d.category(),categorySections.section(d.category()));default->throw new IllegalArgumentException("Неизвестное действие.");};
+        if(d.action().equals("MERGE_CATEGORY")&&(!categoryKnown(d.value())||debtCategory(d.category())||debtCategory(d.value())||incomeSource(d.category())!=incomeSource(d.value())))return answer("Эти категории объединять нельзя.");
         if(next.equals(categorySections))return sectionsHome();undo.remember(snapshot());categorySections=next;return sectionsHome().map(r->{var actions=new ArrayList<MenuButton>(r.buttons()==null?MenuCatalog.buttons(r.screen()):r.buttons());actions.add(new MenuButton("↩️ Отменить изменение","/undo"));return new BotReply("✅ Изменение сохранено. Можно отменить.\n"+r.text(),r.screen(),r.imagePng(),actions);});
     }catch(IllegalArgumentException invalid){return answer("Изменение не сохранено. "+invalid.getMessage());}}
     private Optional<BotReply> planSections(){var month=selectedPlanMonth();saveSectionDraft(new SectionDraft("","","","",month.toString(),"PLAN_VIEW",""));pending=Pending.PLAN_SECTION_PICK;navigation.open(Screen.OPERATION_SECTIONS);return answer("📂 Выберите раздел · "+month);}
@@ -1604,6 +1663,7 @@ public final class LocalBotEngine {
                 additions.add(new BudgetPlan(target, catalog.ensure(item.category()), Money.of(item.amount())));
             }
             undo.remember(snapshot());
+            for(var addition:additions)reviveDeletedPlan(addition.month(),addition.category(),addition.amount());
             localPlans.addAll(additions);
             pending = Pending.NONE;
             pendingCategory = "";
@@ -1681,7 +1741,8 @@ public final class LocalBotEngine {
     private Optional<BotReply> showFiltered() {
         pending = Pending.NONE; cachedChoiceValues = null;
         if (editorContext) return beginEditOperations(true);
-        return open(Screen.HISTORY, LocalBotViews.history(filteredData(), now(), historyFrom, historyThrough, historyPage, operationLinks));
+        if(navigation.current()!=Screen.HISTORY)navigation.open(Screen.HISTORY);
+        return answer(LocalBotViews.history(filteredData(), now(), historyFrom, historyThrough, historyPage, operationLinks));
     }
     private java.util.List<LedgerEntry> filteredOperations(boolean useFilters) {
         var entries = LocalBotViews.historyEntries(combined(), now(), useFilters ? historyFrom : null, useFilters ? historyThrough : null);
@@ -1700,7 +1761,8 @@ public final class LocalBotEngine {
         while (navigation.current() == Screen.EDITOR_CARD || navigation.current() == Screen.EDITOR_INPUT || navigation.current() == Screen.EDITOR_CONFIRM || navigation.current() == Screen.EDITOR_DELETE_CONFIRM) navigation.back();
         pending = editorContext ? Pending.HISTORY_EDIT_SELECT : Pending.EDIT_SELECT;
         cachedChoiceValues = null; pendingCategory = "";
-        navigation.open(editorContext ? Screen.HISTORY_EDITOR_LIST : Screen.EDITOR_LIST);
+        if(editorContext&&navigation.state().backStack().contains(Screen.HISTORY)){while(navigation.current()==Screen.HISTORY_EDITOR_LIST)navigation.back();editorContext=false;pending=Pending.NONE;return showFiltered().map(r->new BotReply(message+"\nФильтры и страница сохранены.\n"+r.text(),r.screen(),r.imagePng(),r.buttons()));}
+        navigation.open(editorContext?Screen.HISTORY_EDITOR_LIST:Screen.EDITOR_LIST);
         return answer(message + "\nФильтры и страница сохранены.");
     }
 
@@ -1925,7 +1987,7 @@ public final class LocalBotEngine {
         var raw=operationEditor.combined(original, localEntries, localPlans, debtState, goalState, limitState, operationLinks, deletedIds);
         var legacy=planEditor.apply(raw,planEdits.stream().filter(e->!e.canonical()).toList());
         return planEditor.apply(categorySections.apply(legacy),planEdits.stream().filter(financeos.core.PlanEdit::canonical)
-                .map(e->new financeos.core.PlanEdit(e.month(),categorySections.canonical(e.source()),categorySections.canonical(e.category()),e.amount(),true)).toList());
+                .map(e->new financeos.core.PlanEdit(e.month(),categorySections.canonical(e.source()),categorySections.canonical(e.category()),e.amount(),true,e.deleted())).toList());
     }
 
     private LegacyUserData combined() { return new financeos.core.DebtBudgetService().project(manualData(), operationLinks, now()); }
@@ -1950,6 +2012,7 @@ public final class LocalBotEngine {
     private Optional<BotReply> answer(String text) {
         text=boundedReplyText(text);
         cachedChoiceValues = null;
+        if(pending==Pending.DELETE_PLAN_CONFIRM)return Optional.of(new BotReply(text,navigation.current(),null,List.of(new MenuButton("🗑 Подтвердить удаление","/delete_plan_confirm"),new MenuButton("⬅️ Назад","/back"),new MenuButton("🏠 Меню","/start"))));
         if (pending==Pending.NONE && (text.contains("«Отменить»") || text.contains("Изменение можно отменить"))) {
             var actions=new ArrayList<MenuButton>();
             if(text.startsWith("✅ Доход сохранён"))actions.add(new MenuButton("➕ Ещё доход","/income"));
@@ -2011,8 +2074,11 @@ public final class LocalBotEngine {
             case ARCHIVED_CATEGORY_PICK -> categoryCatalog().all().stream().filter(categorySections::hidden).toList();
             case EXPENSE_CATEGORY -> categories().stream().filter(c->!incomeSource(c)).filter(c->sectionDraft().section().isBlank()||sectionOf(c,YearMonth.from(now())).equals(sectionDraft().section())).toList();
             case PLAN -> categories();
-            case DELETE_PLAN -> localPlans.stream().filter(p -> p.month().equals(YearMonth.from(now())))
-                    .map(BudgetPlan::category).distinct().toList();
+            case DELETE_PLAN_MONTH -> {var months=new java.util.TreeSet<YearMonth>();months.add(YearMonth.from(now()));months.add(YearMonth.from(now()).plusMonths(1));manualData().plans().forEach(p->months.add(p.month()));yield months.stream().map(YearMonth::toString).toList();}
+            case DELETE_PLAN_SECTION -> deletablePlans(selectedPlanMonth()).stream().map(p->sectionOf(p.category(),p.month())).distinct().toList();
+            case DELETE_PLAN -> deletablePlans(selectedPlanMonth()).stream().filter(p->sectionOf(p.category(),p.month()).equals(sectionDraft().section())).map(BudgetPlan::category).toList();
+            case SECTION_DELETE_TARGET -> categorySections.allSections().stream().filter(n->!n.equals(sectionDraft().section())).toList();
+            case CATEGORY_MERGE_TARGET -> categories().stream().filter(c->!categoryKey(c).equals(categoryKey(sectionDraft().category()))).filter(c->incomeSource(c)==incomeSource(sectionDraft().category())).filter(c->!debtCategory(c)&&!debtCategory(sectionDraft().category())).toList();
             case PAY_DEBT, EDIT_DEBT, CLOSE_DEBT -> debtState.stream().filter(Debt::active).map(Debt::name).toList();
             case FUND_GOAL, CLOSE_GOAL -> goalState.stream().filter(Goal::active).map(Goal::name).toList();
             case DELETE_OPERATION -> localEntries.stream().filter(e -> e.entry().id().startsWith("local-")
@@ -2051,6 +2117,7 @@ public final class LocalBotEngine {
         }
         if (page > 0) buttons.add(new MenuButton("⬅️ Предыдущие", "/choices/" + pending.name() + "/" + (page - 1)));
         if (page + 1 < pages) buttons.add(new MenuButton("➡️ Следующие", "/choices/" + pending.name() + "/" + (page + 1)));
+        if(pending==Pending.DELETE_PLAN&&!values.isEmpty())buttons.add(new MenuButton("🗑 Удалить весь план раздела","/delete_plan_section_all"));
         if (quick) {
             buttons.add(new MenuButton(pending==Pending.QUICK_CATEGORY ? "Все категории" : "Недавние", pending==Pending.QUICK_CATEGORY ? "/quick_all" : "/quick_recent"));
             buttons.add(new MenuButton("❌ Отмена", "/quick_cancel"));
@@ -2065,7 +2132,7 @@ public final class LocalBotEngine {
     private String choiceLabel(String value) {
         if(pending==Pending.REPORT_EXPENSE_CATEGORY)return value+" · "+PlanFactView.money(reportExpenseTotals().getOrDefault(value,BigDecimal.ZERO));
         if(pending==Pending.REPORT_EXPENSE_SECTION)return value+" · "+PlanFactView.money(reportExpenseTotals(true).getOrDefault(value,BigDecimal.ZERO));
-        if (pending == Pending.DELETE_PLAN) return effectiveCategory(value, YearMonth.from(now()));
+        if (pending == Pending.DELETE_PLAN) return value;
         if (pending == Pending.EDIT_SELECT || pending == Pending.HISTORY_EDIT_SELECT) {
             var entry = findOperation(value).entry();
             return entry.date() + " · " + UiText.flow(displayKind(entry), entry.amount()) + " · " + entry.category() + "\n" + entry.description();

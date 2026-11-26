@@ -144,6 +144,21 @@ public final class CloudVkProcessorTest {
             exchange.sendResponseHeaders(200, bytes.length);
             try (var out = exchange.getResponseBody()) { out.write(bytes); }
         });
+        server.createContext("/photos.getMessagesUploadServer", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] bytes=("{\"response\":{\"upload_url\":\"http://127.0.0.1:"+server.getAddress().getPort()+"/photo-upload\"}}").getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200,bytes.length);try(var out=exchange.getResponseBody()){out.write(bytes);}
+        });
+        server.createContext("/photo-upload", exchange -> {
+            byte[] body=exchange.getRequestBody().readAllBytes();
+            if(!new String(body,StandardCharsets.ISO_8859_1).contains("name=\"photo\""))throw new AssertionError("Missing multipart photo");
+            byte[] bytes="{\"server\":5,\"photo\":\"image\",\"hash\":\"hash\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200,bytes.length);try(var out=exchange.getResponseBody()){out.write(bytes);}
+        });
+        server.createContext("/photos.saveMessagesPhoto", exchange -> {
+            exchange.getRequestBody().readAllBytes();byte[] bytes="{\"response\":[{\"owner_id\":-99,\"id\":77}]}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200,bytes.length);try(var out=exchange.getResponseBody()){out.write(bytes);}
+        });
         server.start();
         try {
             URI base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());

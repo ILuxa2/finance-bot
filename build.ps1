@@ -17,6 +17,8 @@ try {
     }
     $jars = @(Get-ChildItem -Path (Join-Path $root '.m2\com\fasterxml\jackson') -Filter '*.jar' -Recurse | ForEach-Object FullName)
     $classpath = (@((Join-Path $root 'target\test-classes'), (Join-Path $root 'target\classes')) + $jars) -join ';'
+    & $java -cp $classpath financeos.vk.Release18Test
+    if ($LASTEXITCODE -ne 0) { throw "Release18 checks failed" }
     & $java -cp $classpath financeos.vk.OperationCategoryMoveTest
     if ($LASTEXITCODE -ne 0) { throw "Operation category move checks failed" }
     & $java -cp $classpath financeos.vk.InterfaceAgreementTest
